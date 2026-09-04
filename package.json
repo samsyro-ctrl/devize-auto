@@ -1,0 +1,23 @@
+{
+  "name": "devize-auto",
+  "version": "1.0.0",
+  "description": "Genereaza automat devize de constructii dintr-o antemasuratoare (Excel/PDF/Word), pe baza nomenclatorului de norme de deviz (BC3).",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.116.0",
+    "dotenv": "^16.4.5",
+    "mammoth": "^1.8.0",
+    "pdf-parse": "^1.1.1",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "author": "Delta Concept",
+  "license": "UNLICENSED",
+  "private": true
+}
