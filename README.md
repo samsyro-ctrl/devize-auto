@@ -12,6 +12,10 @@ cp .env.example .env
 
 node scripts/importa-nomenclator.js --scrie
 node scripts/verifica-nomenclator.js
+
+# optional, o singura data: preia preturile deja introduse manual in
+# colectia "proprii" din recrutare-bot, ca punct de plecare pentru cache
+node scripts/importa-preturi-proprii.js --scrie
 ```
 
 ## Calibrare (o singura data, inainte de a avea incredere in auto-matching)
