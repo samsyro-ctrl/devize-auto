@@ -54,6 +54,9 @@ function deschide(outputDir) {
     -- O linie = o pozitie din antemasuratoarea incarcata (denumire+cantitate+UM),
     -- asa cum a extras-o modelul din documentul original. "ordine" pastreaza
     -- ordinea din document, ca devizul final sa urmeze acelasi fir.
+    -- "cod_dat" -- doar la fluxul "incarca-deviz": codul de nomenclator care
+    -- apare deja scris in devizul impus (daca apare). NULL la antemasuratoare
+    -- libera (fluxul "incarca"), unde nu exista niciun cod dat, doar denumire.
     CREATE TABLE IF NOT EXISTS antemasuratoare_linii (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       proiect_id  INTEGER NOT NULL REFERENCES proiecte(id),
@@ -61,7 +64,8 @@ function deschide(outputDir) {
       capitol     TEXT,
       denumire    TEXT NOT NULL,
       cantitate   REAL NOT NULL,
-      unitate     TEXT NOT NULL
+      unitate     TEXT NOT NULL,
+      cod_dat     TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_linii_proiect ON antemasuratoare_linii(proiect_id);
     -- Rezultatul matching-ului unei linii cu nomenclatorul. "stare": auto
@@ -69,11 +73,16 @@ function deschide(outputDir) {
     -- a validat sau a ales alt articol) / de_revizuit (sub prag) /
     -- fara_potrivire (nimic relevant gasit). "candidati_json" tine top 5,
     -- ca ecranul de revizuire sa poata arata alternative fara o cautare noua.
+    -- "nota" -- mesaj scurt de context pentru revizuire, folosit mai ales la
+    -- "incarca-deviz": ex. "codul dat XYZ nu exista in nomenclator" sau
+    -- "codul XYZ exista in mai multe colectii" -- ca omul sa stie DE CE
+    -- linia asta cere atentie, nu doar CA cere.
     CREATE TABLE IF NOT EXISTS rezolutii_matching (
       linie_id       INTEGER PRIMARY KEY REFERENCES antemasuratoare_linii(id),
       colectie       TEXT, cod TEXT, scor REAL,
       stare          TEXT NOT NULL DEFAULT 'de_revizuit',
       candidati_json TEXT,
+      nota           TEXT,
       rezolvat_la    TEXT
     );
     -- Cache GLOBAL de preturi curente, partajat intre proiecte -- pretul
@@ -100,7 +109,17 @@ function deschide(outputDir) {
       PRIMARY KEY (proiect_id, colectie, cod)
     );
   `);
+  // "CREATE TABLE IF NOT EXISTS" nu atinge un tabel deja existent -- pe o
+  // baza creata inainte de aceasta coloana, ea n-ar aparea niciodata fara
+  // asta. Adaugata o singura data, sigur (verifica intai daca lipseste).
+  adaugaColoana('antemasuratoare_linii', 'cod_dat', 'TEXT');
+  adaugaColoana('rezolutii_matching', 'nota', 'TEXT');
   return db;
+}
+
+function adaugaColoana(tabel, coloana, definitie) {
+  const are = db.prepare(`PRAGMA table_info(${tabel})`).all().some((c) => c.name === coloana);
+  if (!are) db.exec(`ALTER TABLE ${tabel} ADD COLUMN ${coloana} ${definitie}`);
 }
 
 const acum = () => new Date().toISOString();
@@ -179,6 +198,13 @@ const cautaArticol = (colectie, cod) =>
 const copiiDescompunere = (colectie, cod) =>
   (db ? db.prepare('SELECT cod_copil, cantitate FROM nomenclator_descompuneri WHERE colectie = ? AND cod_parinte = ?').all(colectie, cod) : []);
 
+/** Un cod EXACT, cautat in toate colectiile deodata -- pentru "incarca-deviz",
+ * unde devizul impus poate veni deja cu codul de nomenclator scris, fara sa
+ * spuna din ce colectie (acelasi cod poate exista in mai multe colectii, cu
+ * sensuri diferite -- de-aia se intorc TOATE potrivirile, nu doar prima). */
+const cautaDupaCodExact = (cod) =>
+  (db ? db.prepare('SELECT colectie, cod, unitate, descriere, pret, tip FROM nomenclator_articole WHERE cod = ?').all(cod) : []);
+
 // ─── Proiecte ─────────────────────────────────────────────────────────────
 
 function creeazaProiect(nume, fisierSursa) {
@@ -192,13 +218,13 @@ const actualizeazaStareProiect = (id, stare) => db.prepare('UPDATE proiecte SET 
 
 // ─── Linii de antemasuratoare ────────────────────────────────────────────────
 
-/** @param {Array<{ordine, capitol, denumire, cantitate, unitate}>} linii */
+/** @param {Array<{ordine, capitol, denumire, cantitate, unitate, cod_dat?}>} linii */
 function insereazaLiniiAntemasuratoare(proiectId, linii) {
   if (!linii?.length) return;
-  const ins = db.prepare('INSERT INTO antemasuratoare_linii (proiect_id, ordine, capitol, denumire, cantitate, unitate) VALUES (?,?,?,?,?,?)');
+  const ins = db.prepare('INSERT INTO antemasuratoare_linii (proiect_id, ordine, capitol, denumire, cantitate, unitate, cod_dat) VALUES (?,?,?,?,?,?,?)');
   db.exec('BEGIN');
   try {
-    for (const l of linii) ins.run(proiectId, l.ordine, l.capitol || 'Nespecificat', l.denumire, l.cantitate, l.unitate);
+    for (const l of linii) ins.run(proiectId, l.ordine, l.capitol || 'Nespecificat', l.denumire, l.cantitate, l.unitate, l.cod_dat || null);
     db.exec('COMMIT');
   } catch (e) {
     db.exec('ROLLBACK');
@@ -210,15 +236,15 @@ const liniiPeProiect = (proiectId) => db.prepare('SELECT * FROM antemasuratoare_
 
 // ─── Rezolutii de matching ───────────────────────────────────────────────────
 
-/** @param {{stare, colectie, cod, scor, candidati_json}} rezolutie */
+/** @param {{stare, colectie, cod, scor, candidati_json, nota?}} rezolutie */
 function salveazaRezolutie(linieId, rezolutie) {
-  db.prepare(`INSERT INTO rezolutii_matching (linie_id, colectie, cod, scor, stare, candidati_json, rezolvat_la)
-    VALUES (?,?,?,?,?,?,?)
+  db.prepare(`INSERT INTO rezolutii_matching (linie_id, colectie, cod, scor, stare, candidati_json, nota, rezolvat_la)
+    VALUES (?,?,?,?,?,?,?,?)
     ON CONFLICT(linie_id) DO UPDATE SET
-      colectie = excluded.colectie, cod = excluded.cod, scor = excluded.scor,
-      stare = excluded.stare, candidati_json = excluded.candidati_json, rezolvat_la = excluded.rezolvat_la`)
+      colectie = excluded.colectie, cod = excluded.cod, scor = excluded.scor, stare = excluded.stare,
+      candidati_json = excluded.candidati_json, nota = excluded.nota, rezolvat_la = excluded.rezolvat_la`)
     .run(linieId, rezolutie.colectie || null, rezolutie.cod || null, rezolutie.scor ?? null,
-      rezolutie.stare, rezolutie.candidati_json || '[]', acum());
+      rezolutie.stare, rezolutie.candidati_json || '[]', rezolutie.nota || null, acum());
 }
 
 function confirmaRezolutie(linieId, colectie, cod) {
@@ -229,7 +255,7 @@ function confirmaRezolutie(linieId, colectie, cod) {
 /** Liniile unui proiect, cu rezolutia lor de matching alaturata (LEFT JOIN --
  * o linie fara nicio rezolutie inca tot trebuie sa apara, cu stare NULL). */
 const liniiCuRezolutiiPeProiect = (proiectId) => db.prepare(`
-  SELECT l.*, r.colectie, r.cod, r.scor, r.stare, r.candidati_json
+  SELECT l.*, r.colectie, r.cod, r.scor, r.stare, r.candidati_json, r.nota
   FROM antemasuratoare_linii l LEFT JOIN rezolutii_matching r ON r.linie_id = l.id
   WHERE l.proiect_id = ? ORDER BY l.ordine
 `).all(proiectId);
@@ -266,7 +292,7 @@ const resurseAgregatePeProiect = (proiectId) => db.prepare(`
 module.exports = {
   deschide,
   stergeNomenclator, insereazaArticoleNomenclator, insereazaDescompuneriNomenclator,
-  reconstruiesteNomenclatorFts, statisticiNomenclator, cautaNomenclator, cautaArticol, copiiDescompunere,
+  reconstruiesteNomenclatorFts, statisticiNomenclator, cautaNomenclator, cautaArticol, cautaDupaCodExact, copiiDescompunere,
   creeazaProiect, proiectDupaId, toateProiectele, actualizeazaStareProiect,
   insereazaLiniiAntemasuratoare, liniiPeProiect, liniiCuRezolutiiPeProiect,
   salveazaRezolutie, confirmaRezolutie,

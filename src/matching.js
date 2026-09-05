@@ -105,4 +105,58 @@ function alegeMatch(linie) {
   return { stare, colectie: c1.colectie, cod: c1.cod, scor: c1.scor, candidati_json: candidatiJson };
 }
 
-module.exports = { pregatesteInterogareFts, gasesteCandidati, alegeMatch, normalizeazaUnitate };
+/** Potrivirile pentru un cod EXACT (poate exista in mai multe colectii),
+ * filtrate la fel ca gasesteCandidati -- doar articole compuse, reale (nu
+ * noduri de grupare, nu resurse-frunza). */
+function candidatiDupaCodExact(cod) {
+  const bruti = db.cautaDupaCodExact(cod);
+  return bruti.filter((a) => a.tip == null && !a.cod.endsWith('#') && areDescompunere(a.colectie, a.cod));
+}
+
+/**
+ * Ca alegeMatch, dar pentru o linie dintr-un deviz DEJA structurat (impus de
+ * beneficiar/licitatie), care poate veni cu propriul cod de nomenclator.
+ * Prioritate: codul dat, daca exista si e valid, castiga direct -- NU se mai
+ * cauta liber dupa denumire in locul lui, fiindca asta ar insemna sa ignori
+ * exact ce a impus beneficiarul. Doar cand codul dat lipseste sau nu exista
+ * deloc in nomenclator se cade pe cautarea libera dupa denumire (ca la o
+ * antemasuratoare simpla) -- si atunci se semnaleaza explicit prin "nota",
+ * ca omul sa stie ca alternativa NU vine din codul impus, ci dintr-o
+ * cautare de rezerva, si trebuie verificata cu atentie.
+ * @param {{denumire, unitate, cod_dat}} linie
+ * @returns {{stare, colectie, cod, scor, candidati_json, nota}}
+ */
+function alegeMatchCuCod(linie) {
+  if (!linie.cod_dat) return alegeMatch(linie);
+
+  const potriviri = candidatiDupaCodExact(linie.cod_dat);
+
+  if (!potriviri.length) {
+    const fallback = alegeMatch(linie);
+    return {
+      ...fallback,
+      stare: 'de_revizuit',
+      nota: `codul dat "${linie.cod_dat}" nu exista in nomenclator (sau nu e un articol de lucrare valid) -- alternativa de mai jos vine dintr-o cautare dupa denumire, nu din codul impus.`,
+    };
+  }
+
+  if (potriviri.length > 1) {
+    return {
+      stare: 'de_revizuit',
+      candidati_json: JSON.stringify(potriviri.slice(0, 5)),
+      nota: `codul dat "${linie.cod_dat}" exista in ${potriviri.length} colectii diferite -- alege colectia corecta.`,
+    };
+  }
+
+  const [c] = potriviri;
+  const unitateCompatibila = c.unitate && normalizeazaUnitate(c.unitate) === normalizeazaUnitate(linie.unitate);
+  return {
+    stare: unitateCompatibila ? 'auto' : 'de_revizuit',
+    colectie: c.colectie, cod: c.cod, scor: null,
+    candidati_json: JSON.stringify([c]),
+    nota: unitateCompatibila ? null
+      : `codul dat "${linie.cod_dat}" exista, dar unitatea din nomenclator (${c.unitate}) nu se potriveste cu cea din deviz (${linie.unitate}).`,
+  };
+}
+
+module.exports = { pregatesteInterogareFts, gasesteCandidati, alegeMatch, alegeMatchCuCod, normalizeazaUnitate };

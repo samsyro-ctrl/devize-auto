@@ -28,10 +28,28 @@ Uita-te la scorurile si gap-urile afisate pentru denumiri pe care le cunosti dej
 raspunsul corect, apoi completeaza `PRAG_SCOR_MATCHING` si `PRAG_GAP_MATCHING` in `.env`.
 Fara praguri calibrate, toate liniile merg la revizuire manuala (sigur, dar mai lent).
 
-## Flux de lucru
+## Doua fluxuri de intrare
+
+**Antemăsurătoare liberă** — doar denumire+cantitate+UM, fără nicio structură impusă.
+Aleg singur, prin căutare, ce articol din nomenclator reprezintă fiecare linie:
 
 ```bash
 node index.js incarca antemasuratoare.xlsx --proiect "Reabilitare scoala X"
+```
+
+**Deviz deja structurat (impus)** — vine cu propriile capitole/articole/cantități,
+posibil chiar cu cod de nomenclator scris pe fiecare linie, dar fără valori.
+Codul dat are prioritate (nu se mai caută liber în locul lui) — dar dacă nu
+există în nomenclator, există în mai multe colecții deodată, sau unitatea nu
+se potrivește, linia e semnalată explicit la revizuire, cu motivul exact:
+
+```bash
+node index.js incarca-deviz deviz-gol.xlsx --proiect "Modernizare stadion Buzau"
+```
+
+De aici încolo, ambele fluxuri continuă identic:
+
+```bash
 node index.js revizuieste 1
 node index.js genereaza 1
 node index.js preturi 1

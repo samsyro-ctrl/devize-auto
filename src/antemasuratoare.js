@@ -21,12 +21,17 @@ const SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['denumire', 'cantitate', 'unitate', 'capitol'],
+        required: ['denumire', 'cantitate', 'unitate', 'capitol', 'cod'],
         properties: {
           denumire: { type: 'string', description: 'denumirea lucrarii, exact cum apare in document, fara numarul de pozitie/articol din fata' },
           cantitate: { type: 'number' },
           unitate: { type: 'string', enum: UNITATI, description: 'cea mai apropiata unitate din lista, dupa sensul celei din document (ex. "m2"->"mp", "buc."->"buc")' },
           capitol: { type: 'string', description: 'capitolul de lucrari sub care apare pozitia asta in document (ex. "Terasamente", "Structura de rezistenta"), sau "Nespecificat" daca documentul nu are capitole' },
+          // Doar la un deviz DEJA structurat (impus de beneficiar/licitatie),
+          // care vine cu propria coloana de cod (gen "Cod articol", "Simbol",
+          // "Indicator"). La o antemasuratoare libera, fara asa ceva, ramane
+          // gol -- NU se inventeaza un cod care nu exista in document.
+          cod: { type: 'string', description: 'codul de nomenclator/articol, DOAR daca apare explicit scris pe acest rand in document (o coloana separata de denumire). Sir gol daca documentul nu are asa ceva.' },
         },
       },
     },
@@ -116,7 +121,10 @@ async function extrageLiniiAntemasuratoare(text, avertismente = []) {
       continue;
     }
     for (const l of parsat.linii || []) {
-      toateLiniile.push({ ordine: toateLiniile.length + 1, denumire: l.denumire, cantitate: l.cantitate, unitate: l.unitate, capitol: l.capitol });
+      toateLiniile.push({
+        ordine: toateLiniile.length + 1, denumire: l.denumire, cantitate: l.cantitate,
+        unitate: l.unitate, capitol: l.capitol, cod_dat: (l.cod || '').trim() || null,
+      });
       if (l.capitol && l.capitol !== 'Nespecificat') ultimulCapitol = l.capitol;
     }
   }

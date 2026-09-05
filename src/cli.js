@@ -22,13 +22,19 @@ function caleProiect(proiectId, ...parti) {
   return path.join(OUTPUT_DIR, 'proiecte', String(proiectId), ...parti);
 }
 
-async function comandaIncarca(args) {
+/**
+ * Comun celor doua fluxuri de incarcare: extrage textul, extrage liniile
+ * (AI), creeaza proiectul si ruleaza matching-ul cu functia primita.
+ * @param {Function} alegeMatchFn matching.alegeMatch (antemasuratoare libera)
+ *   sau matching.alegeMatchCuCod (deviz impus, cu cod posibil dat).
+ */
+async function proceseazaIncarcare(args, alegeMatchFn) {
   const fisier = args.find((a) => !a.startsWith('--'));
   const idxNume = args.indexOf('--proiect');
   const nume = idxNume >= 0 ? args[idxNume + 1] : (fisier ? path.basename(fisier) : null);
 
   if (!fisier || !fs.existsSync(fisier)) {
-    console.error('Da calea catre fisierul de antemasuratoare (Excel/PDF/Word).');
+    console.error('Da calea catre fisier (Excel/PDF/Word).');
     process.exit(1);
   }
 
@@ -41,10 +47,10 @@ async function comandaIncarca(args) {
     process.exit(1);
   }
 
-  console.log('Extrag liniile de antemasuratoare (Claude)...');
+  console.log('Extrag liniile (Claude)...');
   const linii = await antemasuratoare.extrageLiniiAntemasuratoare(text, avertismente);
   if (!linii.length) {
-    console.error('Nicio linie de antemasuratoare gasita in document.');
+    console.error('Nicio linie gasita in document.');
     process.exit(1);
   }
 
@@ -55,7 +61,7 @@ async function comandaIncarca(args) {
   let deRevizuit = 0;
   let faraPotrivire = 0;
   for (const l of db.liniiPeProiect(proiectId)) {
-    const rezolutie = matching.alegeMatch(l);
+    const rezolutie = alegeMatchFn(l);
     db.salveazaRezolutie(l.id, rezolutie);
     if (rezolutie.stare === 'auto') auto++;
     else if (rezolutie.stare === 'fara_potrivire') faraPotrivire++;
@@ -71,6 +77,16 @@ async function comandaIncarca(args) {
   }
   console.log(`\nUrmatorul pas: node index.js revizuieste ${proiectId}`);
 }
+
+/** Antemasuratoare LIBERA -- nicio structura impusa, aleg singur ce articol
+ * din nomenclator reprezinta fiecare linie. */
+const comandaIncarca = (args) => proceseazaIncarcare(args, matching.alegeMatch);
+
+/** Deviz DEJA structurat (impus de beneficiar/licitatie), fara valori --
+ * daca vine cu propriul cod de nomenclator pe fiecare linie, codul acela
+ * are prioritate (vezi matching.alegeMatchCuCod); doar cand lipseste sau
+ * nu exista se cade pe cautare libera, semnalat explicit. */
+const comandaIncarcaDeviz = (args) => proceseazaIncarcare(args, matching.alegeMatchCuCod);
 
 async function comandaRevizuieste(args) {
   const proiectId = Number(args[0]);
@@ -88,6 +104,8 @@ async function comandaRevizuieste(args) {
 
   for (const l of linii) {
     console.log(`\n#${l.ordine} "${l.denumire}" -- ${l.cantitate} ${l.unitate} (capitol: ${l.capitol})`);
+    if (l.cod_dat) console.log(`  cod dat in deviz: ${l.cod_dat}`);
+    if (l.nota) console.log(`  ⚠️  ${l.nota}`);
     let candidati = JSON.parse(l.candidati_json || '[]');
     if (!candidati.length) console.log('  (niciun candidat gasit automat)');
     candidati.forEach((c, i) => console.log(`  ${i + 1}. [${c.colectie}/${c.cod}] ${c.descriere} (${c.unitate})`));
@@ -195,6 +213,7 @@ async function main() {
 
   switch (comanda) {
     case 'incarca': return comandaIncarca(args);
+    case 'incarca-deviz': return comandaIncarcaDeviz(args);
     case 'revizuieste': return comandaRevizuieste(args);
     case 'genereaza': return comandaGenereaza(args);
     case 'preturi': return comandaPreturi(args);
@@ -203,7 +222,8 @@ async function main() {
     case 'proiecte': return comandaProiecte();
     default:
       console.log(`Comenzi disponibile:
-  incarca <fisier> --proiect "Nume"    incarca o antemasuratoare (Excel/PDF/Word)
+  incarca <fisier> --proiect "Nume"        antemasuratoare LIBERA (Excel/PDF/Word) -- aleg singur articolele din nomenclator
+  incarca-deviz <fisier> --proiect "Nume"  deviz DEJA structurat (impus), fara valori -- respecta codurile date, semnaleaza ce nu se leaga
   revizuieste <proiectId>              revizuieste liniile nesigure/nepotrivite
   genereaza <proiectId>                descompune liniile confirmate in resurse
   preturi <proiectId> [cale.xlsx]      exporta lista de resurse pentru pretuire
