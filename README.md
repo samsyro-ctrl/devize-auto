@@ -18,6 +18,31 @@ node scripts/verifica-nomenclator.js
 node scripts/importa-preturi-proprii.js --scrie
 ```
 
+## Sincronizare preturi cu serverul (recrutare-bot)
+
+`recrutare-bot` ruleaza LIVE pe Hetzner (77.42.38.135), nu pe masina asta --
+nomenclatorul (inclusiv colectia "proprii", cu preturi) a fost importat si acolo,
+o data, la fel ca local. De acum incolo, preturile din "proprii" de pe server
+(orice actualizare facuta acolo) se sincronizeaza AUTOMAT, zilnic la 06:00,
+printr-un task Windows care ruleaza pe SSH (cheia `~/.ssh/hetzner`):
+
+```bash
+node scripts/sincronizeaza-preturi-server.js                -- doar arata ce ar aduce
+node scripts/sincronizeaza-preturi-server.js --scrie         -- chiar scrie in cache
+```
+
+Task-ul e in Windows Task Scheduler (`DevizeAutoSincronizarePreturi`), inregistrat cu:
+
+```powershell
+.\register-task-sincronizare.ps1                # zilnic la 06:00
+.\register-task-sincronizare.ps1 -Time 08:00     # alta ora
+.\register-task-sincronizare.ps1 -Remove         # dezinstaleaza task-ul
+```
+
+Log-uri in `output\logs\sincronizare-preturi_*.log`. Doar colectia "proprii" se
+sincronizeaza -- e singura cu preturi introduse/actualizate de noi (celelalte
+colectii sunt indicatoare istorice, fara pret curent de piata).
+
 ## Calibrare (o singura data, inainte de a avea incredere in auto-matching)
 
 ```bash
