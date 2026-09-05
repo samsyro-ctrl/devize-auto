@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>devize-auto</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Hanken+Grotesk:wght@400;500;600;650;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+  /* — Sistemul de design Build&Fix, acelasi ca in licitatie-analiza si mockup-ul aprobat — */
+  :root {
+    --orange-300:oklch(0.85 0.12 50); --orange-500:oklch(0.70 0.2393 38.12);
+    --orange-soft:color-mix(in oklch, var(--orange-500) 16%, transparent);
+    --warm-0:oklch(0.985 0.004 60); --warm-200:oklch(0.820 0.010 52);
+    --warm-400:oklch(0.600 0.016 48); --warm-1000:oklch(0.0824 0.0271 38.12);
+    --green-500:oklch(0.74 0.16 152); --amber-500:oklch(0.80 0.16 75); --red-500:oklch(0.63 0.22 25);
+    --font-display:'Archivo','Arial Narrow',system-ui,sans-serif;
+    --font-body:'Hanken Grotesk',system-ui,-apple-system,'Segoe UI',sans-serif;
+    --font-mono:'JetBrains Mono',ui-monospace,Consolas,monospace;
+    --glass:color-mix(in oklch, var(--warm-0) 6%, transparent);
+    --glass-tare:color-mix(in oklch, var(--warm-0) 10%, transparent);
+    --glass-inner:inset 0 1px 0 color-mix(in oklch, var(--warm-0) 18%, transparent),
+                  inset 0 -1px 0 color-mix(in oklch, var(--warm-1000) 40%, transparent);
+    --fundal:var(--warm-1000); --text:var(--warm-0);
+    --slab:var(--warm-200); --sters:var(--warm-400);
+    --linie:color-mix(in oklch, var(--warm-0) 14%, transparent);
+    --linie2:color-mix(in oklch, var(--warm-0) 8%, transparent);
+    --da:var(--green-500); --da-f:color-mix(in oklch, var(--green-500) 15%, transparent);
+    --poate:var(--amber-500); --poate-f:color-mix(in oklch, var(--amber-500) 15%, transparent);
+    --nu:var(--red-500); --nu-f:color-mix(in oklch, var(--red-500) 16%, transparent);
+    --accent:var(--orange-500); --accent-f:var(--orange-soft);
+    --firma:var(--orange-300); --firma-f:color-mix(in oklch, var(--orange-300) 13%, transparent);
+    --chip:color-mix(in oklch, var(--warm-0) 9%, transparent);
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; background:var(--fundal); color:var(--text); font-family:var(--font-body); }
+  a { color:var(--accent); text-decoration:none; } a:hover { color:var(--orange-300); }
+  .antet { max-width:1400px; margin:0 auto; padding:20px 22px 0; display:flex; justify-content:space-between; align-items:center; gap:16px; }
+  .marca { display:flex; align-items:center; gap:10px; font-family:var(--font-display); font-weight:800; font-size:19px; cursor:pointer; }
+  .marca .accent { color:var(--accent); }
+  .meniu { max-width:1400px; margin:14px auto 0; padding:0 22px; display:flex; gap:2px; border-bottom:1px solid var(--linie2); align-items:center; }
+  .meniu-i { padding:11px 16px; font-size:14px; font-weight:600; color:var(--sters); border-bottom:2px solid transparent; cursor:pointer; display:flex; align-items:center; gap:8px; }
+  .meniu-i.activ { color:var(--text); border-color:var(--accent); }
+  .meniu-proiect { margin-left:auto; font-size:13px; color:var(--sters); padding:0 4px 11px; }
+  .meniu-proiect b { color:var(--text); font-weight:650; }
+  main { max-width:1400px; margin:0 auto; padding:26px 22px 60px; }
+
+  h1 { font-family:var(--font-display); font-size:24px; font-weight:800; margin:0 0 4px; letter-spacing:-.01em; }
+  .sub { margin:0 0 24px; color:var(--sters); font-size:14px; }
+  .titlu-pag { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:20px; }
+
+  .btn { padding:11px 18px; border:1px solid var(--linie); background:var(--glass); color:var(--text); border-radius:10px;
+         font-size:14px; font-weight:650; font-family:inherit; display:inline-flex; align-items:center; gap:8px; cursor:pointer; }
+  .btn.primar { background:var(--accent); color:var(--warm-1000); border:none; }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  label { display:block; font-size:13px; font-weight:650; color:var(--slab); margin-bottom:8px; }
+  .camp { width:100%; padding:12px 14px; border:1px solid var(--linie); background:var(--glass); border-radius:10px;
+          font-size:14.5px; font-family:inherit; color:var(--text); margin-bottom:20px; }
+  .zona { border:2px dashed var(--linie); border-radius:14px; padding:34px 24px; text-align:center; background:var(--glass); cursor:pointer; }
+  .zona.peste { border-color:var(--accent); background:var(--accent-f); }
+  .zona svg { color:var(--sters); margin-bottom:12px; }
+  .zona p { margin:0 0 4px; font-size:15px; font-weight:600; }
+  .zona p.mic { margin:0; font-size:12.5px; color:var(--sters); font-weight:400; }
+  .radiogrup { display:flex; gap:10px; margin-bottom:22px; }
+  .radio-i { flex:1; border:1.5px solid var(--linie2); border-radius:12px; padding:14px 16px; cursor:pointer; }
+  .radio-i.activ { border-color:var(--accent); background:var(--accent-f); }
+  .radio-i b { display:block; font-size:14px; margin-bottom:3px; }
+  .radio-i span { font-size:12px; color:var(--sters); }
+
+  .card { background:var(--glass); border:1px solid var(--linie2); border-radius:16px; margin-bottom:11px;
+          padding:18px 20px; display:flex; align-items:center; gap:18px; box-shadow:var(--glass-inner); cursor:pointer; }
+  .card-nume { font-size:15.5px; font-weight:650; margin:0 0 5px; }
+  .card-meta { font-size:12.5px; color:var(--sters); display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+  .stare { flex:0 0 auto; padding:5px 12px; border-radius:20px; font-size:12px; font-weight:650; }
+  .stare.generat { background:var(--da-f); color:var(--da); }
+  .stare.matching { background:var(--poate-f); color:var(--poate); }
+  .stare.extras { background:var(--chip); color:var(--slab); }
+
+  .tile { background:var(--glass); border:1px solid var(--linie2); border-radius:14px; padding:18px 16px; text-align:center; box-shadow:var(--glass-inner); }
+  .tile b { display:block; font-family:var(--font-display); font-size:28px; font-weight:800; margin-bottom:4px; }
+  .tile span { font-size:12px; color:var(--sters); font-weight:600; }
+  .rezumat { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:12px; margin:20px 0; }
+
+  .linie-card { background:var(--glass); border:1px solid var(--linie2); border-radius:16px; padding:18px 20px; margin-bottom:12px; box-shadow:var(--glass-inner); }
+  .linie-denumire { font-size:16px; font-weight:700; margin:0 0 8px; }
+  .linie-meta { display:flex; gap:14px; align-items:center; font-size:13px; color:var(--slab); margin-bottom:12px; flex-wrap:wrap; }
+  .linie-meta b { color:var(--text); font-family:var(--font-mono); font-weight:600; }
+  .capitol-chip { padding:3px 10px; border-radius:20px; background:var(--firma-f); color:var(--firma); font-size:11.5px; font-weight:650; }
+  .avertisment { display:flex; gap:8px; align-items:flex-start; font-size:12.5px; color:var(--poate); margin-bottom:12px; background:var(--poate-f); padding:10px 12px; border-radius:10px; }
+
+  .candidat { display:flex; align-items:center; gap:12px; padding:12px 14px; border:1.5px solid var(--linie2); border-radius:12px; margin-bottom:8px; cursor:pointer; }
+  .candidat:hover { border-color:var(--accent); }
+  .candidat-info { flex:1; min-width:0; }
+  .candidat-desc { font-size:13.5px; font-weight:600; margin:0 0 3px; }
+  .candidat-cod { font-family:var(--font-mono); font-size:11px; color:var(--sters); }
+  .candidat-um { flex:0 0 auto; font-size:11.5px; font-weight:650; padding:4px 9px; border-radius:8px; background:var(--chip); color:var(--slab); }
+
+  .cauta-w { display:flex; gap:8px; margin:10px 0 12px; }
+  .cauta-w input { flex:1; padding:10px 13px; border:1px solid var(--linie); background:var(--glass); border-radius:10px; font-size:13.5px; font-family:inherit; color:var(--text); }
+
+  .lateral-titlu { font-size:12px; font-weight:700; color:var(--sters); text-transform:uppercase; letter-spacing:.04em; margin:22px 0 10px; }
+  .rezolvat { display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:10px; opacity:.75; font-size:12.5px; }
+  .rezolvat b { font-weight:600; color:var(--text); } .rezolvat span { color:var(--sters); font-family:var(--font-mono); font-size:10.5px; margin-left:6px; }
+
+  .filtre { display:flex; gap:8px; margin-bottom:16px; }
+  .filtru { padding:8px 16px; border-radius:20px; font-size:13px; font-weight:650; background:var(--chip); color:var(--sters); cursor:pointer; }
+  .filtru.activ { background:var(--accent); color:var(--warm-1000); }
+  .tabel-w { background:var(--glass); border:1px solid var(--linie2); border-radius:16px; overflow:auto; box-shadow:var(--glass-inner); }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:11px; font-weight:700; color:var(--sters); text-transform:uppercase; letter-spacing:.03em; padding:12px 16px; border-bottom:1px solid var(--linie2); white-space:nowrap; }
+  th.num, td.num { text-align:right; }
+  td { padding:11px 16px; border-bottom:1px solid var(--linie2); font-size:13.5px; }
+  tr:last-child td { border-bottom:none; }
+  .tip-tag { font-size:10px; font-weight:700; padding:3px 8px; border-radius:6px; text-transform:uppercase; }
+  .tip-tag.t1 { background:var(--poate-f); color:var(--poate); }
+  .tip-tag.t2 { background:var(--chip); color:var(--slab); }
+  .tip-tag.t3 { background:color-mix(in oklch, var(--orange-500) 15%, transparent); color:var(--orange-500); }
+  .cod { font-family:var(--font-mono); font-size:10.5px; color:var(--sters); display:block; margin-top:2px; }
+  .pret-camp { width:90px; padding:6px 9px; border:1px solid var(--linie); background:var(--glass); border-radius:8px; font-family:var(--font-mono); font-size:13px; color:var(--text); text-align:right; }
+  .pret-camp.gol { border-color:var(--poate); background:var(--poate-f); }
+
+  .capitol { background:var(--glass); border:1px solid var(--linie2); border-radius:16px; margin-bottom:14px; overflow:hidden; box-shadow:var(--glass-inner); }
+  .capitol-cap { padding:13px 18px; font-family:var(--font-display); font-weight:700; font-size:14px; background:var(--glass-tare); display:flex; justify-content:space-between; }
+  .grid-deviz { display:grid; grid-template-columns:2fr 1fr; gap:22px; align-items:start; }
+  .central { background:var(--glass); border:1px solid var(--linie2); border-radius:16px; padding:22px; box-shadow:var(--glass-inner); position:sticky; top:20px; }
+  .central h3 { font-family:var(--font-display); font-size:15px; font-weight:800; margin:0 0 14px; }
+  .rand { display:flex; justify-content:space-between; padding:7px 0; font-size:13px; border-bottom:1px solid var(--linie2); }
+  .rand span:last-child { font-family:var(--font-mono); font-weight:600; }
+  .rand.grup { border-top:1.5px solid var(--linie); margin-top:6px; padding-top:11px; }
+  .rand.total { border:none; margin-top:8px; padding-top:12px; border-top:2px solid var(--accent); }
+  .rand.total span:first-child { font-weight:700; }
+  .rand.total span:last-child { font-size:18px; font-weight:800; color:var(--accent); font-family:var(--font-display); }
+  .rand.finalcutva span:last-child { color:var(--da); font-size:20px; }
+
+  .gol { text-align:center; padding:50px 20px; color:var(--sters); }
+  .incarcare { text-align:center; padding:60px 20px; color:var(--sters); }
+  .eroare-banda { background:var(--nu-f); color:var(--nu); padding:12px 16px; border-radius:10px; font-size:13.5px; margin-bottom:16px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+'use strict';
+
+// ─── Stare + rutare (hash-based, gen "#/proiect/3/preturi") ─────────────────
+let PROIECTE_CACHE = [];
+
+function segmenteRuta() { return (location.hash.replace(/^#\/?/, '') || '').split('/').filter(Boolean); }
+function navigheaza(ruta) { location.hash = ruta; }
+window.addEventListener('hashchange', redeseneaza);
+
+async function api(cale, optiuni) {
+  const r = await fetch(cale, optiuni);
+  const tip = r.headers.get('content-type') || '';
+  const corp = tip.includes('application/json') ? await r.json() : null;
+  if (!r.ok) throw new Error((corp && corp.eroare) || `Eroare server (${r.status})`);
+  return corp;
+}
+
+const ic = (cale, marime) => `<svg width="${marime||18}" height="${marime||18}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;flex:none">${cale}</svg>`;
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const banii = (n) => (Number(n) || 0).toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function antet(tabActiv, proiectId, numeProiect) {
+  const taburi = proiectId ? `
+    <div class="meniu-i ${tabActiv==='revizuire'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/revizuire')">Revizuire</div>
+    <div class="meniu-i ${tabActiv==='preturi'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/preturi')">Prețuire</div>
+    <div class="meniu-i ${tabActiv==='deviz'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/deviz')">Deviz</div>
+    <div class="meniu-proiect">${esc(numeProiect||'')}</div>
+  ` : `
+    <div class="meniu-i ${tabActiv==='proiecte'?'activ':''}" onclick="navigheaza('/')">Proiecte</div>
+    <div class="meniu-i ${tabActiv==='nou'?'activ':''}" onclick="navigheaza('/nou')">Proiect nou</div>
+  `;
+  return `
+    <div class="antet">
+      <div class="marca" onclick="navigheaza('/')">${ic('<path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4"/><path d="M14 3h7v7"/><path d="M10 14 21 3"/>', 24)}devize<span class="accent">-auto</span></div>
+    </div>
+    <div class="meniu">${taburi}</div>`;
+}
+
+function app(html) { document.getElementById('app').innerHTML = html; }
+
+// ─── Pagina: lista de proiecte ───────────────────────────────────────────────
+async function paginaProiecte() {
+  app(antet('proiecte') + `<main><div class="incarcare">Se încarcă...</div></main>`);
+  let proiecte;
+  try { proiecte = await api('/api/proiecte'); } catch (e) { return eroareGenerala(e); }
+  PROIECTE_CACHE = proiecte;
+
+  const STARE_ETICHETA = { extras: 'Antemăsurătoare extrasă', matching: 'În revizuire', generat: 'Deviz generat' };
+  const listaHtml = proiecte.length ? proiecte.map((p) => `
+    <div class="card" onclick="navigheaza('/proiect/${p.id}/revizuire')">
+      <div style="flex:1">
+        <p class="card-nume">${esc(p.nume)}</p>
+        <div class="card-meta"><span>${esc(p.fisier_sursa||'')}</span><span>·</span><span>creat ${new Date(p.creat_la).toLocaleDateString('ro-RO')}</span></div>
+      </div>
+      <div class="stare ${esc(p.stare)}">${esc(STARE_ETICHETA[p.stare] || p.stare)}</div>
+    </div>`).join('') : `<div class="gol">Niciun proiect încă.<br><br><button class="btn primar" onclick="navigheaza('/nou')">+ Proiect nou</button></div>`;
+
+  app(antet('proiecte') + `
+    <main>
+      <div class="titlu-pag">
+        <div><h1>Proiectele tale</h1><p class="sub" style="margin:0">${proiecte.length} proiecte</p></div>
+        <button class="btn primar" onclick="navigheaza('/nou')">${ic('<path d="M12 5v14M5 12h14"/>')} Proiect nou</button>
+      </div>
+      ${listaHtml}
+    </main>`);
+}
+
+// ─── Pagina: proiect nou (upload) ────────────────────────────────────────────
+function paginaProiectNou() {
+  let fisierAles = null;
+  let flux = 'liber';
+
+  function randare(stareSpeciala) {
+    app(antet('nou') + `
+      <main style="max-width:720px">
+        <h1>Proiect nou</h1>
+        <p class="sub">Încarcă documentul cu lucrările — extragem automat liniile și le potrivim cu nomenclatorul.</p>
+
+        <label>Nume proiect</label>
+        <input class="camp" id="camp-nume" placeholder="ex. Reabilitare Școala Gimnazială Nr. 3">
+
+        <label>Tip document</label>
+        <div class="radiogrup">
+          <div class="radio-i ${flux==='liber'?'activ':''}" onclick="window.__setFlux('liber')">
+            <b>Antemăsurătoare liberă</b><span>Doar denumire + cantitate — aleg singur articolele din nomenclator</span>
+          </div>
+          <div class="radio-i ${flux==='impus'?'activ':''}" onclick="window.__setFlux('impus')">
+            <b>Deviz deja structurat</b><span>Vine cu cod de nomenclator — respect codul dat, semnalez ce nu se leagă</span>
+          </div>
+        </div>
+
+        <label>Document (Excel, PDF sau Word)</label>
+        <div class="zona" id="zona-drop" onclick="document.getElementById('fisier-input').click()">
+          ${ic('<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3"/>', 30)}
+          <p>${fisierAles ? esc(fisierAles.name) : 'Trage fișierul aici, sau apasă ca să alegi'}</p>
+          <p class="mic">.xlsx · .pdf · .docx</p>
+        </div>
+        <input type="file" id="fisier-input" accept=".xlsx,.xls,.xlsm,.pdf,.docx" style="display:none">
+
+        ${stareSpeciala === 'eroare' ? `<div class="eroare-banda" style="margin-top:16px">${esc(window.__eroareIncarcare || '')}</div>` : ''}
+        ${stareSpeciala === 'incarcare' ? `<div class="incarcare">Se procesează — extragere text, apoi extragere linii (AI), apoi potrivire cu nomenclatorul. Poate dura până la un minut...</div>` : `
+          <button class="btn primar" style="width:100%;justify-content:center;margin-top:22px" onclick="window.__trimiteIncarcare()">Încarcă și continuă ${ic('<path d="M5 12h14M13 6l6 6-6 6"/>')}</button>
+        `}
+      </main>`);
+
+    const inputFisier = document.getElementById('fisier-input');
+    inputFisier.onchange = () => { fisierAles = inputFisier.files[0] || null; randare(); };
+    const zona = document.getElementById('zona-drop');
+    zona.ondragover = (e) => { e.preventDefault(); zona.classList.add('peste'); };
+    zona.ondragleave = () => zona.classList.remove('peste');
+    zona.ondrop = (e) => { e.preventDefault(); zona.classList.remove('peste'); fisierAles = e.dataTransfer.files[0] || null; randare(); };
+  }
+
+  window.__setFlux = (f) => { flux = f; randare(); };
+  window.__trimiteIncarcare = async () => {
+    const nume = document.getElementById('camp-nume').value.trim();
+    if (!nume) return alert('Scrie numele proiectului.');
+    if (!fisierAles) return alert('Alege un fișier.');
+    randare('incarcare');
+    try {
+      const q = new URLSearchParams({ nume: fisierAles.name, proiect: nume, flux });
+      const rezultat = await api(`/api/proiecte?${q}`, { method: 'PUT', body: fisierAles });
+      navigheaza(`/proiect/${rezultat.proiectId}/revizuire`);
+    } catch (e) {
+      window.__eroareIncarcare = e.message;
+      randare('eroare');
+    }
+  };
+
+  randare();
+}
+
+// ─── Pagina: revizuire (matching) ───────────────────────────────────────────
+async function paginaRevizuire(proiectId) {
+  app(antet('revizuire', proiectId) + `<main><div class="incarcare">Se încarcă...</div></main>`);
+  let date;
+  try { date = await api(`/api/proiecte/${proiectId}`); } catch (e) { return eroareGenerala(e); }
+  const { proiect, linii } = date;
+
+  const deRevizuit = linii.filter((l) => l.stare !== 'auto' && l.stare !== 'confirmat');
+  const rezolvate = linii.filter((l) => l.stare === 'auto' || l.stare === 'confirmat');
+  const faraPotrivire = linii.filter((l) => l.stare === 'fara_potrivire').length;
+
+  function randCandidat(c, linieId) {
+    return `<div class="candidat" onclick="window.__confirma(${linieId}, '${esc(c.colectie)}', '${esc(c.cod)}')">
+      <div class="candidat-info"><p class="candidat-desc">${esc(c.descriere)}</p><span class="candidat-cod">${esc(c.colectie)} / ${esc(c.cod)}</span></div>
+      <span class="candidat-um">${esc(c.unitate||'')}</span>
+    </div>`;
+  }
+
+  const liniiHtml = deRevizuit.map((l) => {
+    const candidati = JSON.parse(l.candidati_json || '[]');
+    return `<div class="linie-card" id="linie-${l.id}">
+      <p class="linie-denumire">${esc(l.denumire)}</p>
+      <div class="linie-meta">
+        <span>Cantitate: <b>${l.cantitate} ${esc(l.unitate)}</b></span>
+        <span class="capitol-chip">${esc(l.capitol)}</span>
+        ${l.cod_dat ? `<span>Cod dat: <b>${esc(l.cod_dat)}</b></span>` : ''}
+      </div>
+      ${l.nota ? `<div class="avertisment">${ic('<path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/>', 15)}${esc(l.nota)}</div>` : ''}
+      ${candidati.length ? candidati.map((c) => randCandidat(c, l.id)).join('') : '<p style="color:var(--sters);font-size:13px">Niciun candidat găsit automat.</p>'}
+      <div class="cauta-w">
+        <input placeholder="Caută alt articol în nomenclator..." onkeydown="if(event.key==='Enter') window.__cautaManual(${l.id}, this.value)">
+        <button class="btn" onclick="window.__cautaManual(${l.id}, this.previousElementSibling.value)">Caută</button>
+      </div>
+      <div id="rezultate-cauta-${l.id}"></div>
+    </div>`;
+  }).join('');
+
+  app(antet('revizuire', proiectId, proiect.nume) + `
+    <main>
+      <h1>Revizuire potriviri</h1>
+      <p class="sub">${deRevizuit.length} de revizuit${faraPotrivire ? `, din care ${faraPotrivire} fără nicio potrivire` : ''} · ${rezolvate.length} deja rezolvate</p>
+
+      ${deRevizuit.length ? liniiHtml : '<div class="gol">Nimic de revizuit — toate liniile sunt auto-potrivite sau confirmate.</div>'}
+
+      ${rezolvate.length ? `
+        <p class="lateral-titlu">Deja rezolvate (${rezolvate.length})</p>
+        ${rezolvate.slice(0, 20).map((l) => `<div class="rezolvat">${ic('<path d="M5 13l4 4L19 7"/>', 15)}<b>${esc(l.denumire)}</b><span>${esc(l.colectie)} / ${esc(l.cod)}</span></div>`).join('')}
+        ${rezolvate.length > 20 ? `<div style="text-align:center;padding:8px;font-size:12px;color:var(--sters)">... și încă ${rezolvate.length - 20}</div>` : ''}
+      ` : ''}
+
+      <div style="margin-top:24px;display:flex;justify-content:flex-end">
+        <button class="btn primar" ${deRevizuit.length ? 'disabled' : ''} onclick="window.__genereaza(${proiectId})">
+          Continuă la generare ${ic('<path d="M5 12h14M13 6l6 6-6 6"/>')}
+        </button>
+      </div>
+    </main>`);
+
+  window.__confirma = async (linieId, colectie, cod) => {
+    try {
+      await api(`/api/proiecte/${proiectId}/rezolutie`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ linieId, colectie, cod }) });
+      paginaRevizuire(proiectId);
+    } catch (e) { alert(e.message); }
+  };
+
+  window.__cautaManual = async (linieId, text) => {
+    const container = document.getElementById(`rezultate-cauta-${linieId}`);
+    if (!text || !text.trim()) { container.innerHTML = ''; return; }
+    container.innerHTML = '<p style="font-size:12px;color:var(--sters);margin:8px 0">Se caută...</p>';
+    try {
+      const rezultate = await api(`/api/cauta?q=${encodeURIComponent(text)}`);
+      container.innerHTML = rezultate.length
+        ? rezultate.map((c) => randCandidat(c, linieId)).join('')
+        : '<p style="font-size:12px;color:var(--sters);margin:8px 0">Niciun rezultat.</p>';
+    } catch (e) { container.innerHTML = `<p style="font-size:12px;color:var(--nu)">${esc(e.message)}</p>`; }
+  };
+
+  window.__genereaza = async (id) => {
+    try {
+      const r = await api(`/api/proiecte/${id}/genereaza`, { method: 'POST' });
+      navigheaza(`/proiect/${id}/preturi`);
+    } catch (e) { alert(e.message); }
+  };
+}
+
+// ─── Pagina: pretuire ────────────────────────────────────────────────────────
+async function paginaPreturi(proiectId) {
+  app(antet('preturi', proiectId) + `<main><div class="incarcare">Se încarcă...</div></main>`);
+  let proiect, resurse;
+  try {
+    proiect = (await api(`/api/proiecte/${proiectId}`)).proiect;
+    resurse = await api(`/api/proiecte/${proiectId}/resurse`);
+  } catch (e) { return eroareGenerala(e); }
+
+  if (!resurse.length) {
+    return app(antet('preturi', proiectId, proiect.nume) + `<main><div class="gol">Nicio resursă generată încă.<br><br><button class="btn primar" onclick="navigheaza('/proiect/${proiectId}/revizuire')">Înapoi la revizuire</button></div></main>`);
+  }
+
+  const ETICHETA_TIP = { 1: ['t1', 'Manoperă'], 2: ['t2', 'Utilaj'], 3: ['t3', 'Material'] };
+  let filtruActiv = 0; // 0 = toate
+
+  function randare() {
+    const vizibile = filtruActiv ? resurse.filter((r) => r.tip === filtruActiv) : resurse;
+    const faraPret = resurse.filter((r) => !r.pret_curent).length;
+
+    const randuri = vizibile.map((r) => {
+      const [clasa, eticheta] = ETICHETA_TIP[r.tip] || ['t2', '?'];
+      const valoare = r.pret_curent ? r.cantitate_totala * r.pret_curent : null;
+      return `<tr>
+        <td><span style="font-weight:600">${esc(r.descriere)}</span><span class="cod">${esc(r.colectie)} / ${esc(r.cod)}</span></td>
+        <td><span class="tip-tag ${clasa}">${eticheta}</span></td>
+        <td class="num">${Number(r.cantitate_totala).toLocaleString('ro-RO',{maximumFractionDigits:3})} ${esc(r.unitate||'')}</td>
+        <td class="num"><input class="pret-camp ${r.pret_curent?'':'gol'}" value="${r.pret_curent||''}" placeholder="—"
+              onchange="window.__salveazaPret('${esc(r.colectie)}','${esc(r.cod)}', this.value)"></td>
+        <td class="num">${valoare != null ? banii(valoare) + ' lei' : '—'}</td>
+      </tr>`;
+    }).join('');
+
+    app(antet('preturi', proiectId, proiect.nume) + `
+      <main>
+        <div class="titlu-pag"><div><h1>Prețuire resurse</h1><p class="sub" style="margin:0">${resurse.length} resurse agregate · prețurile din cache se completează automat</p></div></div>
+        <div class="filtre">
+          <div class="filtru ${filtruActiv===0?'activ':''}" onclick="window.__filtreaza(0)">Toate (${resurse.length})</div>
+          <div class="filtru ${filtruActiv===3?'activ':''}" onclick="window.__filtreaza(3)">Materiale (${resurse.filter(r=>r.tip===3).length})</div>
+          <div class="filtru ${filtruActiv===1?'activ':''}" onclick="window.__filtreaza(1)">Manoperă (${resurse.filter(r=>r.tip===1).length})</div>
+          <div class="filtru ${filtruActiv===2?'activ':''}" onclick="window.__filtreaza(2)">Utilaj (${resurse.filter(r=>r.tip===2).length})</div>
+        </div>
+        <div class="tabel-w"><table>
+          <tr><th>Resursă</th><th>Tip</th><th class="num">Cantitate</th><th class="num">Preț unitar</th><th class="num">Valoare</th></tr>
+          ${randuri}
+        </table></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:18px">
+          <div style="font-size:13px;color:${faraPret?'var(--poate)':'var(--sters)'}">${faraPret ? `${faraPret} resurse fără preț — devizul nu se poate genera până le completezi` : 'Toate resursele au preț.'}</div>
+          <button class="btn primar" onclick="navigheaza('/proiect/${proiectId}/deviz')">Continuă la deviz ${ic('<path d="M5 12h14M13 6l6 6-6 6"/>')}</button>
+        </div>
+      </main>`);
+  }
+
+  window.__filtreaza = (t) => { filtruActiv = t; randare(); };
+  window.__salveazaPret = async (colectie, cod, val) => {
+    const pret = Number(String(val).replace(',', '.'));
+    if (!Number.isFinite(pret) || pret <= 0) return;
+    try {
+      await api('/api/pret', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ colectie, cod, pret }) });
+      const r = resurse.find((x) => x.colectie === colectie && x.cod === cod);
+      if (r) r.pret_curent = pret;
+      randare();
+    } catch (e) { alert(e.message); }
+  };
+
+  randare();
+}
+
+// ─── Pagina: deviz final ─────────────────────────────────────────────────────
+async function paginaDeviz(proiectId) {
+  app(antet('deviz', proiectId) + `<main><div class="incarcare">Se încarcă...</div></main>`);
+  let proiect;
+  try { proiect = (await api(`/api/proiecte/${proiectId}`)).proiect; } catch (e) { return eroareGenerala(e); }
+
+  let rezultat;
+  try {
+    rezultat = await api(`/api/proiecte/${proiectId}/deviz`);
+  } catch (e) {
+    return app(antet('deviz', proiectId, proiect.nume) + `<main>
+      <h1>Deviz final</h1>
+      <div class="eroare-banda">${esc(e.message)}</div>
+      <button class="btn primar" onclick="navigheaza('/proiect/${proiectId}/preturi')">Înapoi la prețuire</button>
+    </main>`);
+  }
+
+  const { capitole, centralizator: c, avertismente } = rezultat;
+  const capitoleHtml = capitole.map((cap) => `
+    <div class="capitol">
+      <div class="capitol-cap"><span>${esc(cap.nume)}</span><span>${banii(cap.total)} lei</span></div>
+      <table>
+        <tr><th>Denumire</th><th class="num">Cant.</th><th class="num">Materiale</th><th class="num">Manoperă</th><th class="num">Utilaj</th><th class="num">Total</th></tr>
+        ${cap.linii.map((l) => `<tr>
+          <td>${esc(l.denumire)}</td><td class="num">${l.cantitate} ${esc(l.unitate)}</td>
+          <td class="num">${banii(l.materiale)}</td><td class="num">${banii(l.manopera)}</td><td class="num">${banii(l.utilaj)}</td><td class="num">${banii(l.total)}</td>
+        </tr>`).join('')}
+      </table>
+    </div>`).join('');
+
+  app(antet('deviz', proiectId, proiect.nume) + `
+    <main>
+      <div class="titlu-pag">
+        <div><h1>Deviz final</h1><p class="sub" style="margin:0">${capitole.reduce((s,cp)=>s+cp.linii.length,0)} linii, ${capitole.length} capitole</p></div>
+        <button class="btn primar" onclick="location.href='/api/proiecte/${proiectId}/export'">${ic('<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3"/>')} Exportă Excel</button>
+      </div>
+      ${avertismente && avertismente.length ? `<div class="eroare-banda" style="background:var(--poate-f);color:var(--poate)">${avertismente.length} avertismente la descompunere -- vezi consola serverului.</div>` : ''}
+      <div class="grid-deviz">
+        <div>${capitoleHtml}</div>
+        <div class="central">
+          <h3>Centralizator</h3>
+          <div class="rand"><span>Total Materiale</span><span>${banii(c.totalMateriale)} lei</span></div>
+          <div class="rand"><span>Total Manoperă</span><span>${banii(c.totalManopera)} lei</span></div>
+          <div class="rand"><span>Total Utilaj</span><span>${banii(c.totalUtilaj)} lei</span></div>
+          <div class="rand grup"><span>Total C+M+U</span><span>${banii(c.totalCMU)} lei</span></div>
+          <div class="rand"><span>Cheltuieli indirecte (${c.adaosIndirecteProcent}%)</span><span>${banii(c.indirecte)} lei</span></div>
+          <div class="rand"><span>Profit (${c.adaosProfitProcent}%)</span><span>${banii(c.profit)} lei</span></div>
+          <div class="rand total"><span>Total general</span><span>${banii(c.totalGeneral)}</span></div>
+          <div class="rand"><span>TVA (${c.tvaProcent}%)</span><span>${banii(c.tva)} lei</span></div>
+          <div class="rand total finalcutva"><span>Total cu TVA</span><span>${banii(c.totalCuTva)}</span></div>
+        </div>
+      </div>
+    </main>`);
+}
+
+function eroareGenerala(e) {
+  app(antet('proiecte') + `<main><div class="eroare-banda">${esc(e.message)}</div><button class="btn" onclick="navigheaza('/')">Înapoi la proiecte</button></main>`);
+}
+
+// ─── Router ──────────────────────────────────────────────────────────────────
+function redeseneaza() {
+  const seg = segmenteRuta();
+  if (seg[0] === 'nou') return paginaProiectNou();
+  if (seg[0] === 'proiect' && seg[1]) {
+    const id = Number(seg[1]);
+    const tab = seg[2] || 'revizuire';
+    if (tab === 'preturi') return paginaPreturi(id);
+    if (tab === 'deviz') return paginaDeviz(id);
+    return paginaRevizuire(id);
+  }
+  return paginaProiecte();
+}
+
+redeseneaza();
+</script>
+</body>
+</html>

@@ -60,6 +60,20 @@ node index.js export 1
 
 `node index.js proiecte` — lista proiectelor existente si starea lor.
 
+## Interfata web (panou)
+
+Acelasi flux, dintr-o pagina in browser, in loc de linia de comanda:
+
+```bash
+npm run panou
+# deschide http://127.0.0.1:7778
+```
+
+Server local simplu (`panou.js`, doar http-ul din Node, fara framework),
+in stilul `licitatie-analiza/panou.js` -- asculta doar pe 127.0.0.1, nu e
+vizibil din retea. Pagina (`panou.html`) e un singur fisier, fara build,
+cu rutare pe hash (`#/proiect/3/preturi`).
+
 ## Structura
 
 Vezi comentariile din fiecare fisier `src/*.js` -- fiecare explica DE CE, nu doar CE.

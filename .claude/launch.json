@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "devize-auto-panou",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["panou.js"],
+      "port": 7778
+    }
+  ]
+}
