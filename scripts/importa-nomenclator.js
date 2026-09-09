@@ -11,6 +11,7 @@
 //   node scripts/importa-nomenclator.js                -- doar arata ce ar importa
 //   node scripts/importa-nomenclator.js --scrie         -- chiar scrie in baza
 //   node scripts/importa-nomenclator.js "alt/folder" --scrie
+//   node scripts/importa-nomenclator.js --scrie --fisier public.db  -- importa in public.db, nu devize.db
 'use strict';
 
 const path = require('path');
@@ -18,7 +19,10 @@ const fs = require('fs');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const SCRIE = process.argv.includes('--scrie');
-const ARG_FOLDER = process.argv.slice(2).find((a) => !a.startsWith('--'));
+const iFisier = process.argv.indexOf('--fisier');
+const NUME_FISIER = iFisier !== -1 ? process.argv[iFisier + 1] : 'devize.db';
+// Folderul sursa: primul argument care nu e "--ceva" si nici valoarea de dupa "--fisier".
+const ARG_FOLDER = process.argv.slice(2).find((a, i, arr) => !a.startsWith('--') && arr[i - 1] !== '--fisier');
 const SURSA_DIR = ARG_FOLDER || process.env.NOMENCLATOR_BC3_DIR;
 
 if (!SURSA_DIR) {
@@ -42,7 +46,7 @@ const COLECTII = {
 async function main() {
   const db = require('../src/db');
   const { parcurgeBC3 } = require('../src/bc3');
-  db.deschide(path.join(__dirname, '..', 'output'));
+  db.deschide(path.join(__dirname, '..', 'output'), NUME_FISIER);
 
   console.log(`Sursa: ${SURSA_DIR}`);
   console.log(`Mod: ${SCRIE ? 'SCRIU in baza' : 'doar test, NU scriu (adauga --scrie ca sa chiar salveze)'}.\n`);
@@ -83,7 +87,7 @@ async function main() {
   }
 
   console.log(`\nTotal: ${totalArticole} articole, ${totalDescompuneri} muchii descompunere.`
-    + (SCRIE ? ' Scrise in output/devize.db.' : ' Nimic scris -- ruleaza din nou cu --scrie ca sa chiar salveze.'));
+    + (SCRIE ? ` Scrise in output/${NUME_FISIER}.` : ' Nimic scris -- ruleaza din nou cu --scrie ca sa chiar salveze.'));
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

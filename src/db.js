@@ -15,11 +15,15 @@ const { ensureDir } = require('./util');
 
 let db = null;
 
-/** Deschide (si creeaza la prima rulare) baza. */
-function deschide(outputDir) {
+/** Deschide (si creeaza la prima rulare) baza. "numeFisier" -- separat pentru
+ * instanta publica (public.db, vezi public-server.js) fata de cea interna
+ * (devize.db, panou.js) -- doua fisiere diferite, izolare garantata la nivel
+ * de disc, nu doar printr-o coloana de filtrare usor de uitat intr-o
+ * interogare viitoare. */
+function deschide(outputDir, numeFisier = 'devize.db') {
   if (db) return db;
   const { DatabaseSync } = require('node:sqlite');
-  const f = path.join(ensureDir(outputDir), 'devize.db');
+  const f = path.join(ensureDir(outputDir), numeFisier);
   db = new DatabaseSync(f);
   db.exec(`
     -- ─── Nomenclator (portat din recrutare-bot) ──────────────────────────────
@@ -108,11 +112,53 @@ function deschide(outputDir) {
       cantitate_totala REAL NOT NULL,
       PRIMARY KEY (proiect_id, colectie, cod)
     );
+
+    -- ─── Firme (doar in public.db, vezi public-server.js) ───────────────────
+    -- Un cont = o firma, creat manual de noi (CLI, scripts/creeaza-firma.js),
+    -- nu prin inregistrare libera -- vezi planul. Parola nu se pastreaza
+    -- niciodata in clar, doar amprenta (scrypt+sare, vezi src/firmePublic.js).
+    CREATE TABLE IF NOT EXISTS firme (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      nume              TEXT NOT NULL,
+      email             TEXT NOT NULL UNIQUE,
+      hash_parola       TEXT NOT NULL,
+      sare              TEXT NOT NULL,
+      parola_temporara  INTEGER NOT NULL DEFAULT 1,
+      creat_la          TEXT NOT NULL,
+      ultima_intrare    TEXT,
+      dezactivat        INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS sesiuni_publice (
+      token       TEXT PRIMARY KEY,
+      firma_id    INTEGER NOT NULL REFERENCES firme(id),
+      creat_la    TEXT NOT NULL,
+      expira_la   TEXT NOT NULL
+    );
+    -- Cache de preturi, ca "preturi_curente", dar scopat pe firma -- separat
+    -- de "preturi_curente" (folosit STRICT de instrumentul intern), pentru ca
+    -- doua firme diferite NU trebuie sa vada preturile una alteia, si nici
+    -- cache-ul intern (alimentat din "proprii"/recrutare-bot) nu trebuie sa
+    -- iasa public. Un tabel nou, nu o coloana pe cel vechi -- schimbarea
+    -- cheii primare a lui "preturi_curente" ar fi riscat sa strice upsert-ul
+    -- deja folosit de panou.js/cli.js (NULL != NULL intr-o cheie unica).
+    CREATE TABLE IF NOT EXISTS preturi_curente_firma (
+      firma_id      INTEGER NOT NULL REFERENCES firme(id),
+      colectie      TEXT NOT NULL,
+      cod           TEXT NOT NULL,
+      pret          REAL NOT NULL,
+      actualizat_la TEXT NOT NULL,
+      PRIMARY KEY (firma_id, colectie, cod)
+    );
   `);
   // "CREATE TABLE IF NOT EXISTS" nu atinge un tabel deja existent -- pe o
   // baza creata inainte de aceasta coloana, ea n-ar aparea niciodata fara
   // asta. Adaugata o singura data, sigur (verifica intai daca lipseste).
   adaugaColoana('antemasuratoare_linii', 'cod_dat', 'TEXT');
+  // "firma_id" -- NULL pe devize.db (instrumentul intern, fara conturi), mereu
+  // completat pe public.db. Coloana e comuna (schema partajata intre cele
+  // doua fisiere), dar interogarile scopate pe firma (mai jos) nu ruleaza
+  // niciodata pe devize.db -- panou.js (intern) nu le foloseste deloc.
+  adaugaColoana('proiecte', 'firma_id', 'INTEGER');
   adaugaColoana('rezolutii_matching', 'nota', 'TEXT');
   return db;
 }
@@ -289,6 +335,73 @@ const resurseAgregatePeProiect = (proiectId) => db.prepare(`
   WHERE r.proiect_id = ? ORDER BY r.tip, r.descriere
 `).all(proiectId);
 
+// ─── Preturi + resurse, scopate pe firma (public.db) ────────────────────────
+// Aceleasi doua functii de mai sus (salveazaPretCurent, resurseAgregatePeProiect)
+// NU se ating -- ele raman legate de cache-ul GLOBAL, intern. Astea cauta/scriu
+// in "preturi_curente_firma", niciodata in "preturi_curente".
+
+function salveazaPretCurentFirma(firmaId, colectie, cod, pret) {
+  db.prepare(`INSERT INTO preturi_curente_firma (firma_id, colectie, cod, pret, actualizat_la) VALUES (?,?,?,?,?)
+    ON CONFLICT(firma_id, colectie, cod) DO UPDATE SET pret = excluded.pret, actualizat_la = excluded.actualizat_la`)
+    .run(firmaId, colectie, cod, pret, acum());
+}
+const pretCurentFirma = (firmaId, colectie, cod) =>
+  db.prepare('SELECT pret FROM preturi_curente_firma WHERE firma_id = ? AND colectie = ? AND cod = ?').get(firmaId, colectie, cod)?.pret ?? null;
+
+const resurseAgregatePeProiectFirma = (proiectId, firmaId) => db.prepare(`
+  SELECT r.*, COALESCE(p.pret, 0) pret_curent
+  FROM resurse_agregate r LEFT JOIN preturi_curente_firma p ON p.firma_id = ? AND p.colectie = r.colectie AND p.cod = r.cod
+  WHERE r.proiect_id = ? ORDER BY r.tip, r.descriere
+`).all(firmaId, proiectId);
+
+// ─── Proiecte scopate pe firma (public.db, vezi public-server.js) ───────────
+// Functiile de mai sus (creeazaProiect, proiectDupaId, toateProiectele) NU se
+// ating -- panou.js (instrumentul intern) continua sa le foloseasca exact ca
+// azi. Astea de-aici sunt in plus, folosite STRICT de public-server.js, ca
+// niciun proiect al unei firme sa nu poata fi cerut/vazut fara sa treaca prin
+// firma_id-ul din sesiune -- niciodata doar dupa un id de proiect brut,
+// nesigur, venit din URL.
+function creeazaProiectPentruFirma(nume, fisierSursa, firmaId) {
+  const r = db.prepare('INSERT INTO proiecte (nume, creat_la, fisier_sursa, firma_id) VALUES (?,?,?,?)')
+    .run(nume, acum(), fisierSursa || null, firmaId);
+  return Number(r.lastInsertRowid);
+}
+const proiectePeFirma = (firmaId) => db.prepare('SELECT * FROM proiecte WHERE firma_id = ? ORDER BY id DESC').all(firmaId);
+const proiectDupaIdSiFirma = (id, firmaId) => db.prepare('SELECT * FROM proiecte WHERE id = ? AND firma_id = ?').get(id, firmaId);
+
+// ─── Firme ────────────────────────────────────────────────────────────────
+
+function creeazaFirma({ nume, email, sare, hash }) {
+  const r = db.prepare('INSERT INTO firme (nume, email, hash_parola, sare, creat_la) VALUES (?,?,?,?,?)')
+    .run(nume, email, hash, sare, acum());
+  return Number(r.lastInsertRowid);
+}
+const firmaDupaEmail = (email) => db.prepare('SELECT * FROM firme WHERE email = ?').get(email);
+const firmaDupaId = (id) => db.prepare('SELECT * FROM firme WHERE id = ?').get(id);
+const toateFirmele = () => db.prepare('SELECT id, nume, email, parola_temporara, creat_la, ultima_intrare, dezactivat FROM firme ORDER BY id').all();
+function actualizeazaParolaFirma(firmaId, sare, hash, parolaTemporara) {
+  db.prepare('UPDATE firme SET sare = ?, hash_parola = ?, parola_temporara = ? WHERE id = ?')
+    .run(sare, hash, parolaTemporara ? 1 : 0, firmaId);
+}
+const actualizeazaUltimaIntrareFirma = (firmaId) => db.prepare('UPDATE firme SET ultima_intrare = ? WHERE id = ?').run(acum(), firmaId);
+
+// ─── Sesiuni publice ──────────────────────────────────────────────────────
+// In sqlite (nu in memorie/fisier JSON ca la licitatie-analiza) -- devize-auto
+// tine deja tot restul in sqlite, nu are sens un al doilea mecanism de
+// persistenta doar pentru sesiuni.
+
+function insereazaSesiunePublica(token, firmaId, expiraLa) {
+  db.prepare('INSERT INTO sesiuni_publice (token, firma_id, creat_la, expira_la) VALUES (?,?,?,?)')
+    .run(token, firmaId, acum(), expiraLa);
+}
+function sesiunePublica(token) {
+  const s = db.prepare('SELECT * FROM sesiuni_publice WHERE token = ?').get(token);
+  if (!s) return null;
+  if (new Date(s.expira_la).getTime() < Date.now()) { stergeSesiunePublica(token); return null; }
+  return s;
+}
+const stergeSesiunePublica = (token) => db.prepare('DELETE FROM sesiuni_publice WHERE token = ?').run(token);
+
 module.exports = {
   deschide,
   stergeNomenclator, insereazaArticoleNomenclator, insereazaDescompuneriNomenclator,
@@ -298,4 +411,8 @@ module.exports = {
   salveazaRezolutie, confirmaRezolutie,
   salveazaPretCurent, pretCurent,
   stergeResurseAgregate, adaugaResursaAgregata, resurseAgregatePeProiect,
+  creeazaProiectPentruFirma, proiectePeFirma, proiectDupaIdSiFirma,
+  salveazaPretCurentFirma, pretCurentFirma, resurseAgregatePeProiectFirma,
+  creeazaFirma, firmaDupaEmail, firmaDupaId, toateFirmele, actualizeazaParolaFirma, actualizeazaUltimaIntrareFirma,
+  insereazaSesiunePublica, sesiunePublica, stergeSesiunePublica,
 };

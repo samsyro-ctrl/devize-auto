@@ -6,7 +6,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node index.js",
-    "panou": "node panou.js"
+    "panou": "node panou.js",
+    "public": "node public-server.js"
   },
   "engines": {
     "node": ">=22"
