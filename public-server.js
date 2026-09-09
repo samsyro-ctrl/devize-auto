@@ -109,12 +109,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/api/login' && req.method === 'POST') {
-      const { email, parola } = await citesteCorp(req);
-      const r = firmePublic.autentifica(email, parola);
+      const { utilizator, parola } = await citesteCorp(req);
+      const r = firmePublic.autentifica(utilizator, parola);
       if (r && r.blocat) {
         return json(res, { eroare: 'Prea multe încercări greșite. Așteaptă câteva minute și mai încearcă o dată.' }, 429);
       }
-      if (!r) return json(res, { eroare: 'Email sau parolă greșită' }, 401);
+      if (!r) return json(res, { eroare: 'Utilizator sau parolă greșită' }, 401);
       res.setHeader('Set-Cookie', cookieSesiune(r.token, firmePublic.DURATA_SESIUNE_MS / 1000));
       return json(res, { ok: true, nume: r.nume, email: r.email, parolaTemporara: r.parolaTemporara });
     }

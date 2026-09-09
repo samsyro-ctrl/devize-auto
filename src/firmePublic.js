@@ -47,20 +47,36 @@ function parolaTemporara() {
 
 // ─── Conturi ─────────────────────────────────────────────────────────────────
 
+/** Fara diacritice, spatii normalizate, lowercase -- ca "Cristian" si
+ * "cristian" (sau "Crистian" cu diacritice romanesti) sa insemne acelasi
+ * lucru la login. Acelasi tipar ca licitatie-analiza/utilizatori.js. */
+function curata(s) {
+  return String(s || '').trim().toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ');
+}
+
 /**
  * Creeaza un cont de firma si intoarce parola temporara -- SINGURA data cand
  * e vizibila. O trimiti firmei pe alt canal (WhatsApp/email); la prima
  * autentificare, pagina publica o obliga sa-si aleaga alta.
+ * @param {{nume, utilizator, email}} date -- "utilizator" e ce se scrie la
+ *   login (ex. "cristian"), "nume" ramane numele complet/firma afisat in
+ *   antet, "email" doar contact -- nu se mai foloseste la autentificare.
  */
-function creeaza({ nume, email }) {
+function creeaza({ nume, utilizator, email }) {
   const emailCurat = String(email || '').trim().toLowerCase();
   if (!emailCurat || !emailCurat.includes('@')) throw new Error('Email invalid');
   if (db.firmaDupaEmail(emailCurat)) throw new Error(`Exista deja un cont pentru "${emailCurat}"`);
 
+  const utilizatorCurat = curata(utilizator) || null;
+  if (utilizatorCurat && db.toateFirmeleComplet().some((f) => curata(f.utilizator) === utilizatorCurat)) {
+    throw new Error(`Exista deja un cont cu utilizatorul "${utilizator}"`);
+  }
+
   const parola = parolaTemporara();
   const { sare, hash } = faceAmprenta(parola);
-  const id = db.creeazaFirma({ nume: String(nume || '').trim() || emailCurat, email: emailCurat, sare, hash });
-  return { id, email: emailCurat, parolaTemporara: parola };
+  const id = db.creeazaFirma({ nume: String(nume || '').trim() || emailCurat, utilizator: utilizatorCurat, email: emailCurat, sare, hash });
+  return { id, utilizator: utilizatorCurat, email: emailCurat, parolaTemporara: parola };
 }
 
 function schimbaParola(firmaId, parolaVeche, parolaNoua) {
@@ -92,12 +108,23 @@ function inregistreazaEsec(cheie) {
   incercariEsuate.set(cheie, lista);
 }
 
-/** @returns {{token,...}|{blocat:true}|null} null = email/parola gresite */
-function autentifica(email, parola) {
-  const cheie = String(email || '').trim().toLowerCase();
+/**
+ * @param {string} utilizator -- "utilizator" (login scurt) SAU numele
+ *   complet -- omul scrie ce stie despre el, nu are de unde sti exact ce
+ *   forma vrem (acelasi tipar ca licitatie-analiza/utilizatori.js).
+ * @returns {{token,...}|{blocat:true}|null} null = utilizator/parola gresite
+ */
+function autentifica(utilizator, parola) {
+  const cheie = curata(utilizator);
   if (esteBlocat(cheie)) return { blocat: true };
 
-  const f = db.firmaDupaEmail(cheie);
+  const toate = db.toateFirmeleComplet();
+  const potriviti = toate.filter((x) => curata(x.utilizator) === cheie || curata(x.nume) === cheie);
+  // Daca doua firme au acelasi nume, numele nu mai identifica pe nimeni --
+  // cerem atunci utilizatorul exact, nu ghicim pe care dintre ele o vrea.
+  const f = potriviti.length === 1 ? potriviti[0]
+    : toate.find((x) => curata(x.utilizator) === cheie) || null;
+
   // Chiar daca nu exista contul, calculam o amprenta -- altfel raspunsul ar
   // veni mai repede pentru firme inexistente si s-ar putea afla care conturi exista.
   const sare = f ? f.sare : 'sare-inexistenta';

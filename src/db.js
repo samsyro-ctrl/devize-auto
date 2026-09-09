@@ -120,6 +120,7 @@ function deschide(outputDir, numeFisier = 'devize.db') {
     CREATE TABLE IF NOT EXISTS firme (
       id                INTEGER PRIMARY KEY AUTOINCREMENT,
       nume              TEXT NOT NULL,
+      utilizator        TEXT,
       email             TEXT NOT NULL UNIQUE,
       hash_parola       TEXT NOT NULL,
       sare              TEXT NOT NULL,
@@ -160,6 +161,10 @@ function deschide(outputDir, numeFisier = 'devize.db') {
   // niciodata pe devize.db -- panou.js (intern) nu le foloseste deloc.
   adaugaColoana('proiecte', 'firma_id', 'INTEGER');
   adaugaColoana('rezolutii_matching', 'nota', 'TEXT');
+  // SQLite nu permite UNIQUE pe o coloana adaugata prin ALTER -- unicitatea
+  // pentru "utilizator" (pe o baza deja existenta) se verifica in cod, in
+  // firmePublic.creeaza(), la fel ca pentru orice alta baza noua oricum.
+  adaugaColoana('firme', 'utilizator', 'TEXT');
   return db;
 }
 
@@ -371,19 +376,26 @@ const proiectDupaIdSiFirma = (id, firmaId) => db.prepare('SELECT * FROM proiecte
 
 // ─── Firme ────────────────────────────────────────────────────────────────
 
-function creeazaFirma({ nume, email, sare, hash }) {
-  const r = db.prepare('INSERT INTO firme (nume, email, hash_parola, sare, creat_la) VALUES (?,?,?,?,?)')
-    .run(nume, email, hash, sare, acum());
+function creeazaFirma({ nume, utilizator, email, sare, hash }) {
+  const r = db.prepare('INSERT INTO firme (nume, utilizator, email, hash_parola, sare, creat_la) VALUES (?,?,?,?,?,?)')
+    .run(nume, utilizator || null, email, hash, sare, acum());
   return Number(r.lastInsertRowid);
 }
 const firmaDupaEmail = (email) => db.prepare('SELECT * FROM firme WHERE email = ?').get(email);
 const firmaDupaId = (id) => db.prepare('SELECT * FROM firme WHERE id = ?').get(id);
-const toateFirmele = () => db.prepare('SELECT id, nume, email, parola_temporara, creat_la, ultima_intrare, dezactivat FROM firme ORDER BY id').all();
+// Randuri COMPLETE (inclusiv hash_parola/sare) -- STRICT pentru potrivirea de
+// login din firmePublic.autentifica() (fuzzy pe "utilizator" SAU "nume",
+// acelasi tipar ca licitatie-analiza/utilizatori.js), niciodata expusa direct
+// pe vreo ruta publica.
+const toateFirmeleComplet = () => db.prepare('SELECT * FROM firme').all();
+// Varianta SIGURA (fara hash_parola/sare), pentru afisare/listare.
+const toateFirmele = () => db.prepare('SELECT id, nume, utilizator, email, parola_temporara, creat_la, ultima_intrare, dezactivat FROM firme ORDER BY id').all();
 function actualizeazaParolaFirma(firmaId, sare, hash, parolaTemporara) {
   db.prepare('UPDATE firme SET sare = ?, hash_parola = ?, parola_temporara = ? WHERE id = ?')
     .run(sare, hash, parolaTemporara ? 1 : 0, firmaId);
 }
 const actualizeazaUltimaIntrareFirma = (firmaId) => db.prepare('UPDATE firme SET ultima_intrare = ? WHERE id = ?').run(acum(), firmaId);
+const actualizeazaUtilizatorFirma = (firmaId, utilizator) => db.prepare('UPDATE firme SET utilizator = ? WHERE id = ?').run(utilizator, firmaId);
 
 // ─── Sesiuni publice ──────────────────────────────────────────────────────
 // In sqlite (nu in memorie/fisier JSON ca la licitatie-analiza) -- devize-auto
@@ -413,6 +425,7 @@ module.exports = {
   stergeResurseAgregate, adaugaResursaAgregata, resurseAgregatePeProiect,
   creeazaProiectPentruFirma, proiectePeFirma, proiectDupaIdSiFirma,
   salveazaPretCurentFirma, pretCurentFirma, resurseAgregatePeProiectFirma,
-  creeazaFirma, firmaDupaEmail, firmaDupaId, toateFirmele, actualizeazaParolaFirma, actualizeazaUltimaIntrareFirma,
+  creeazaFirma, firmaDupaEmail, firmaDupaId, toateFirmele, toateFirmeleComplet,
+  actualizeazaParolaFirma, actualizeazaUltimaIntrareFirma, actualizeazaUtilizatorFirma,
   insereazaSesiunePublica, sesiunePublica, stergeSesiunePublica,
 };

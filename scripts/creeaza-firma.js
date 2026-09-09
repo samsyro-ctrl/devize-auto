@@ -5,19 +5,23 @@
 // transmite firmei pe alt canal (WhatsApp/email), nu se salveaza in clar
 // nicaieri.
 //
+// "Utilizator" e ce se scrie la login (scurt, ex. "cristian") -- "Nume Firma"
+// ramane numele complet, afisat in antet. Login-ul accepta si numele complet
+// (vezi firmePublic.autentifica), utilizatorul e doar varianta rapida.
+//
 // Rulare:
-//   node scripts/creeaza-firma.js "Nume Firma" email@firma.ro
-//   node scripts/creeaza-firma.js "Nume Firma" email@firma.ro --scrie
+//   node scripts/creeaza-firma.js "Nume Firma" utilizator email@firma.ro
+//   node scripts/creeaza-firma.js "Nume Firma" utilizator email@firma.ro --scrie
 'use strict';
 
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const SCRIE = process.argv.includes('--scrie');
-const [nume, email] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const [nume, utilizator, email] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 
-if (!nume || !email) {
-  console.error('Rulare: node scripts/creeaza-firma.js "Nume Firma" email@firma.ro [--scrie]');
+if (!nume || !utilizator || !email) {
+  console.error('Rulare: node scripts/creeaza-firma.js "Nume Firma" utilizator email@firma.ro [--scrie]');
   process.exit(1);
 }
 
@@ -27,6 +31,7 @@ function main() {
   const firmePublic = require('../src/firmePublic');
 
   console.log(`Firma: ${nume}`);
+  console.log(`Utilizator: ${utilizator}`);
   console.log(`Email: ${email}`);
   console.log(`Mod: ${SCRIE ? 'SCRIU contul' : 'doar test, NU scriu (adauga --scrie ca sa chiar creeze)'}.\n`);
 
@@ -36,11 +41,12 @@ function main() {
   }
 
   try {
-    const r = firmePublic.creeaza({ nume, email });
+    const r = firmePublic.creeaza({ nume, utilizator, email });
     console.log(`✔ Cont creat (id ${r.id}).\n`);
     console.log(`Parola temporara (trimite-o firmei acum -- nu mai apare niciodata):`);
     console.log(`   ${r.parolaTemporara}\n`);
     console.log(`Login la: https://devize.buildandfix.ai`);
+    console.log(`Utilizator: ${r.utilizator}`);
   } catch (e) {
     console.error(`✖ ${e.message}`);
     process.exit(1);

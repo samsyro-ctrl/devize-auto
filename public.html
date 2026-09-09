@@ -226,8 +226,8 @@ function paginaLogin() {
     <div class="login-w">
       <div class="login-card">
         <div class="login-marca">${ic('<path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4"/><path d="M14 3h7v7"/><path d="M10 14 21 3"/>', 26)}devize<span class="accent">-auto</span></div>
-        <label>Email</label>
-        <input class="camp" id="login-email" type="email" autocomplete="username">
+        <label>Utilizator</label>
+        <input class="camp" id="login-utilizator" type="text" autocomplete="username" onkeydown="if(event.key==='Enter') document.getElementById('login-parola').focus()">
         <label>Parolă</label>
         ${campParola('login-parola', 'current-password', "if(event.key==='Enter') window.__login()")}
         <div id="login-eroare"></div>
@@ -235,10 +235,10 @@ function paginaLogin() {
       </div>
     </div>`);
   window.__login = async () => {
-    const email = document.getElementById('login-email').value.trim();
+    const utilizator = document.getElementById('login-utilizator').value.trim();
     const parola = document.getElementById('login-parola').value;
     try {
-      const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, parola }) });
+      const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ utilizator, parola }) });
       const corp = await r.json();
       if (!r.ok) { document.getElementById('login-eroare').innerHTML = `<div class="eroare-banda">${esc(corp.eroare)}</div>`; return; }
       STARE_ACCES = { autentificat: true, firma: { nume: corp.nume, email: corp.email, parolaTemporara: corp.parolaTemporara } };
