@@ -6,6 +6,7 @@
 'use strict';
 
 const MODEL = process.env.MODEL_EXTRAGERE || 'claude-sonnet-5';
+const { cheama } = require('./ai');
 
 // Acelasi enum de unitate ca in recrutare-bot/src/firme.js -- consecventa
 // intre instrumente, nu doar in acesta.
@@ -77,6 +78,71 @@ function imParte(text, marimeMax) {
 }
 
 /**
+ * O singura bucata de text, trimisa la model -- daca raspunsul a fost
+ * TRUNCHIAT (stop_reason "max_tokens", nu doar un JSON stricat intamplator),
+ * bucata chiar avea prea multe linii pentru cei 8192 tokeni alocati -- se
+ * imparte in doua (la cel mai apropiat \n de mijloc) si se reincearca fiecare
+ * jumatate separat, recursiv, pana fiecare bucata ramasa e destul de mica cat
+ * sa incapa intr-un raspuns complet. Gasire dintr-un caz real (deviz CEF
+ * fotovoltaic, 96.000 caractere): fara asta, un "raspuns care nu e JSON
+ * valid" arunca la gunoi liniile DINTR-O BUCATA INTREAGA -- 60%+ din document,
+ * silentios, cu un singur rand de avertisment usor de trecut cu vederea.
+ * @returns {Promise<{linii: Array, ultimulCapitol: string|null}>}
+ */
+async function proceseazaBucata(client, text, ultimulCapitolInainte, avertismente, eticheta, adancime = 0) {
+  const hint = ultimulCapitolInainte
+    ? `\n\n(Ultimul capitol vazut in bucata anterioara a documentului: "${ultimulCapitolInainte}" -- daca bucata asta continua sub acelasi capitol, fara un titlu nou de capitol la inceput, foloseste-l tot pe acela.)`
+    : '';
+  let resp;
+  try {
+    resp = await cheama(client, {
+      model: MODEL,
+      max_tokens: 8192,
+      system: SYSTEM,
+      output_config: { format: { type: 'json_schema', schema: SCHEMA } },
+      messages: [{ role: 'user', content: [{ type: 'text', text: `Document (${eticheta}):\n\n${text}${hint}` }] }],
+    }, 'antemasuratoare');
+  } catch (e) {
+    avertismente.push(`${eticheta}: extragere esuata (${e.mesajOmenesc || e.message}).`);
+    return { linii: [], ultimulCapitol: ultimulCapitolInainte };
+  }
+
+  if (resp.stop_reason === 'max_tokens') {
+    // Prea multe linii reale in bucata asta ca sa incapa raspunsul -- nu
+    // presupune ce lipseste, imparte si reincearca amandoua jumatatile.
+    if (text.length < 3000 || adancime >= 6) {
+      avertismente.push(`${eticheta}: raspunsul modelului a fost trunchiat (prea multe linii) si bucata e deja prea mica ca sa mai poata fi impartita -- posibil linii lipsa aici, verifica manual documentul original.`);
+      return { linii: [], ultimulCapitol: ultimulCapitolInainte };
+    }
+    let mijloc = text.lastIndexOf('\n', Math.floor(text.length / 2));
+    if (mijloc <= 0) mijloc = Math.floor(text.length / 2);
+    const stanga = await proceseazaBucata(client, text.slice(0, mijloc), ultimulCapitolInainte, avertismente, `${eticheta}, jumatatea 1`, adancime + 1);
+    const dreapta = await proceseazaBucata(client, text.slice(mijloc), stanga.ultimulCapitol, avertismente, `${eticheta}, jumatatea 2`, adancime + 1);
+    return { linii: [...stanga.linii, ...dreapta.linii], ultimulCapitol: dreapta.ultimulCapitol };
+  }
+
+  const block = resp.content.find((b) => b.type === 'text');
+  if (!block) {
+    avertismente.push(`${eticheta}: raspuns gol de la model.`);
+    return { linii: [], ultimulCapitol: ultimulCapitolInainte };
+  }
+  let parsat;
+  try {
+    parsat = JSON.parse(block.text);
+  } catch {
+    avertismente.push(`${eticheta}: raspuns care nu e JSON valid, sarita.`);
+    return { linii: [], ultimulCapitol: ultimulCapitolInainte };
+  }
+
+  let ultimulCapitol = ultimulCapitolInainte;
+  const linii = (parsat.linii || []).map((l) => {
+    if (l.capitol && l.capitol !== 'Nespecificat') ultimulCapitol = l.capitol;
+    return { denumire: l.denumire, cantitate: l.cantitate, unitate: l.unitate, capitol: l.capitol, cod_dat: (l.cod || '').trim() || null };
+  });
+  return { linii, ultimulCapitol };
+}
+
+/**
  * Extrage liniile de antemasuratoare dintr-un text (posibil chunked, pentru
  * documente mari).
  * @param {string} text
@@ -88,44 +154,16 @@ async function extrageLiniiAntemasuratoare(text, avertismente = []) {
   if (!apiKey) throw new Error('Lipseste ANTHROPIC_API_KEY.');
   const Anthropic = require('@anthropic-ai/sdk');
   const client = new Anthropic({ apiKey });
-  const { cheama } = require('./ai');
 
-  const bucati = imParte(text, 60000);
+  const bucati = imParte(text, 40000);
   const toateLiniile = [];
   let ultimulCapitol = null;
 
   for (let i = 0; i < bucati.length; i++) {
-    const hint = ultimulCapitol
-      ? `\n\n(Ultimul capitol vazut in bucata anterioara a documentului: "${ultimulCapitol}" -- daca bucata asta continua sub acelasi capitol, fara un titlu nou de capitol la inceput, foloseste-l tot pe acela.)`
-      : '';
-    let resp;
-    try {
-      resp = await cheama(client, {
-        model: MODEL,
-        max_tokens: 8192,
-        system: SYSTEM,
-        output_config: { format: { type: 'json_schema', schema: SCHEMA } },
-        messages: [{ role: 'user', content: [{ type: 'text', text: `Document (bucata ${i + 1}/${bucati.length}):\n\n${bucati[i]}${hint}` }] }],
-      }, 'antemasuratoare');
-    } catch (e) {
-      avertismente.push(`Bucata ${i + 1}/${bucati.length}: extragere esuata (${e.mesajOmenesc || e.message}).`);
-      continue;
-    }
-    const block = resp.content.find((b) => b.type === 'text');
-    if (!block) { avertismente.push(`Bucata ${i + 1}/${bucati.length}: raspuns gol de la model.`); continue; }
-    let parsat;
-    try {
-      parsat = JSON.parse(block.text);
-    } catch {
-      avertismente.push(`Bucata ${i + 1}/${bucati.length}: raspuns care nu e JSON valid, sarita.`);
-      continue;
-    }
-    for (const l of parsat.linii || []) {
-      toateLiniile.push({
-        ordine: toateLiniile.length + 1, denumire: l.denumire, cantitate: l.cantitate,
-        unitate: l.unitate, capitol: l.capitol, cod_dat: (l.cod || '').trim() || null,
-      });
-      if (l.capitol && l.capitol !== 'Nespecificat') ultimulCapitol = l.capitol;
+    const rezultat = await proceseazaBucata(client, bucati[i], ultimulCapitol, avertismente, `bucata ${i + 1}/${bucati.length}`);
+    ultimulCapitol = rezultat.ultimulCapitol;
+    for (const l of rezultat.linii) {
+      toateLiniile.push({ ordine: toateLiniile.length + 1, ...l });
     }
   }
 
