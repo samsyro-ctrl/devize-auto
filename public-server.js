@@ -87,6 +87,9 @@ const server = http.createServer(async (req, res) => {
     if (p === '/' || p === '/index.html') {
       return serveFisier(res, path.join(RADACINA, 'public.html'), 'text/html; charset=utf-8');
     }
+    if (p === '/favicon.svg') {
+      return serveFisier(res, path.join(RADACINA, 'favicon.svg'), 'image/svg+xml');
+    }
 
     const sesiune = firmePublic.dinCerere(req);
     if (!sesiune && !PUBLICE.has(p)) {
