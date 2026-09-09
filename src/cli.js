@@ -76,6 +76,7 @@ async function proceseazaIncarcare(args, alegeMatchFn) {
     avertismente.forEach((a) => console.log('  ' + a));
   }
   console.log(`\nUrmatorul pas: node index.js revizuieste ${proiectId}`);
+  return proiectId;
 }
 
 /** Antemasuratoare LIBERA -- nicio structura impusa, aleg singur ce articol
@@ -199,6 +200,122 @@ function comandaExport(args) {
   }
 }
 
+/**
+ * Importa antemasuratoarea + scopul proiectului direct dintr-o licitatie
+ * urmarita in licitatie-analiza -- gaseste dosarul, clasifica documentele
+ * (src/dosarLicitatie.js), importa "liste_cantitati" (flux existent, impus)
+ * si extrage scopul din caiet de sarcini/fisa de date/clarificari
+ * (src/scopProiect.js), ca "verifica-completitudine" sa aiba fata de ce sa
+ * verifice devizul.
+ */
+async function comandaImportaLicitatie(args) {
+  const idLicitatie = args.find((a) => !a.startsWith('--'));
+  const idxNume = args.indexOf('--proiect');
+  const nume = idxNume >= 0 ? args[idxNume + 1] : (idLicitatie ? `Licitatie ${idLicitatie}` : null);
+  if (!idLicitatie) { console.error('Da id-ul licitatiei (ex. SCN1177636).'); process.exit(1); }
+
+  const dirLicitatieAnaliza = process.env.LICITATIE_ANALIZA_DIR;
+  if (!dirLicitatieAnaliza) { console.error('Lipseste LICITATIE_ANALIZA_DIR in .env.'); process.exit(1); }
+  const caleDosar = path.join(dirLicitatieAnaliza, 'dosare', idLicitatie);
+
+  const dosarLicitatie = require('./dosarLicitatie');
+  let peClasa;
+  try {
+    peClasa = dosarLicitatie.documenteDinDosar(caleDosar);
+  } catch (e) {
+    console.error(e.message);
+    process.exit(1);
+  }
+
+  console.log(`Documente gasite in dosarul ${idLicitatie}:`);
+  for (const [clasa, docs] of Object.entries(peClasa)) {
+    console.log(`  ${clasa}: ${docs.map((d) => d.nume).join(', ')}`);
+  }
+
+  const listeCantitati = peClasa.liste_cantitati || [];
+  if (!listeCantitati.length) {
+    console.error('\nNiciun document clasificat ca "liste_cantitati" (deviz/antemasuratoare) in acest dosar -- nimic de importat.');
+    process.exit(1);
+  }
+  if (listeCantitati.length > 1) {
+    console.log(`\n⚠️  ${listeCantitati.length} documente "liste_cantitati" gasite -- import doar primul (${listeCantitati[0].nume}). Restul, de importat manual daca e cazul.`);
+  }
+
+  console.log(`\nImport antemasuratoare din: ${listeCantitati[0].nume}`);
+  const proiectId = await proceseazaIncarcare([listeCantitati[0].cale, '--proiect', nume], matching.alegeMatchCuCod);
+  if (!proiectId) { console.error('Importul antemasuratorii a esuat.'); process.exit(1); }
+
+  const documenteScop = [...(peClasa.caiet_sarcini || []), ...(peClasa.fisa_date || []), ...(peClasa.clarificari || [])];
+  if (!documenteScop.length) {
+    console.log('\n⚠️  Niciun caiet de sarcini/fisa de date/clarificare gasit -- scopul proiectului NU a fost extras, "verifica-completitudine" nu va functiona pana nu-l completezi manual.');
+    return;
+  }
+
+  console.log(`\nExtrag scopul proiectului din ${documenteScop.length} documente (${documenteScop.map((d) => d.nume).join(', ')})...`);
+  const avertismenteScop = [];
+  let textScop = '';
+  for (const d of documenteScop) {
+    // eslint-disable-next-line no-await-in-loop
+    const text = await extract.textDinFisier({ nume: d.nume, cale: d.cale }, avertismenteScop);
+    if (text) textScop += `\n\n--- ${d.clasa}: ${d.nume} ---\n${text}`;
+  }
+  if (!textScop.trim()) {
+    console.log('⚠️  N-am putut extrage text din niciun document de scop -- verifica manual.');
+    if (avertismenteScop.length) avertismenteScop.forEach((a) => console.log('  ' + a));
+    return;
+  }
+
+  const scopProiect = require('./scopProiect');
+  const scop = await scopProiect.extrageScopProiect(textScop, avertismenteScop);
+  db.actualizeazaScopProiect(proiectId, scop);
+
+  console.log(`\nProdus: ${scop.produs}`);
+  console.log(`Nivel de livrare: ${scop.nivel_livrare}`);
+  console.log(`${scop.activitati.length} activitati extrase din documentatie.`);
+  if (avertismenteScop.length) {
+    console.log('\nAvertismente:');
+    avertismenteScop.forEach((a) => console.log('  ' + a));
+  }
+  console.log(`\nUrmatorul pas: node index.js verifica-completitudine ${proiectId}`);
+}
+
+/** Verifica daca devizul (deja generat) acopera toate activitatile cerute de
+ * documentatia licitatiei -- vezi src/completitudine.js. */
+async function comandaVerificaCompletitudine(args) {
+  const proiectId = Number(args[0]);
+  if (!proiectId) { console.error('Da id-ul proiectului.'); process.exit(1); }
+
+  const completitudine = require('./completitudine');
+  let rezultat;
+  try {
+    rezultat = await completitudine.verificaCompletitudine(proiectId);
+  } catch (e) {
+    console.error(e.message);
+    process.exit(1);
+  }
+
+  console.log(`Produs: ${rezultat.produs}`);
+  console.log(`Nivel de livrare: ${rezultat.nivel_livrare}\n`);
+
+  const acoperite = rezultat.verificari.filter((v) => v.stare === 'acoperita');
+  const partiale = rezultat.verificari.filter((v) => v.stare === 'partial');
+  const lipsa = rezultat.verificari.filter((v) => v.stare === 'lipsa');
+  console.log(`${acoperite.length} acoperite, ${partiale.length} partiale, ${lipsa.length} lipsa (din ${rezultat.verificari.length} activitati).\n`);
+
+  if (lipsa.length) {
+    console.log('LIPSA din deviz:');
+    lipsa.forEach((v) => console.log(`  ✖ ${v.activitate}\n    ${v.detaliu}`));
+  }
+  if (partiale.length) {
+    console.log('\nPARTIALE:');
+    partiale.forEach((v) => console.log(`  ~ ${v.activitate}\n    ${v.detaliu}`));
+  }
+  if (rezultat.avertismente.length) {
+    console.log('\nAvertismente:');
+    rezultat.avertismente.forEach((a) => console.log('  ' + a));
+  }
+}
+
 function comandaProiecte() {
   const proiecte = db.toateProiectele();
   if (!proiecte.length) { console.log('Niciun proiect inca. Incepe cu "incarca".'); return; }
@@ -219,11 +336,15 @@ async function main() {
     case 'preturi': return comandaPreturi(args);
     case 'incarca-preturi': return comandaIncarcaPreturi(args);
     case 'export': return comandaExport(args);
+    case 'importa-licitatie': return comandaImportaLicitatie(args);
+    case 'verifica-completitudine': return comandaVerificaCompletitudine(args);
     case 'proiecte': return comandaProiecte();
     default:
       console.log(`Comenzi disponibile:
   incarca <fisier> --proiect "Nume"        antemasuratoare LIBERA (Excel/PDF/Word) -- aleg singur articolele din nomenclator
   incarca-deviz <fisier> --proiect "Nume"  deviz DEJA structurat (impus), fara valori -- respecta codurile date, semnaleaza ce nu se leaga
+  importa-licitatie <idLicitatie> --proiect "Nume"   importa direct dintr-o licitatie urmarita in licitatie-analiza (antemasuratoare + scop)
+  verifica-completitudine <proiectId>  verifica daca devizul acopera tot ce cere documentatia licitatiei (dupa importa-licitatie)
   revizuieste <proiectId>              revizuieste liniile nesigure/nepotrivite
   genereaza <proiectId>                descompune liniile confirmate in resurse
   preturi <proiectId> [cale.xlsx]      exporta lista de resurse pentru pretuire

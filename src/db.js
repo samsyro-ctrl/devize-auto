@@ -150,6 +150,22 @@ function deschide(outputDir, numeFisier = 'devize.db') {
       actualizat_la TEXT NOT NULL,
       PRIMARY KEY (firma_id, colectie, cod)
     );
+
+    -- Rezultatul verificarii de completitudine (src/completitudine.js) -- o
+    -- linie per activitate ceruta de documentatia licitatiei, cu verdictul
+    -- daca devizul o acopera. Rerulata = sterge-si-reinsereaza (nu adauga la
+    -- infinit -- vezi salveazaVerificariCompletitudine), ca raportul sa
+    -- reflecte mereu ultima verificare, nu un amestec de rulari vechi si noi.
+    CREATE TABLE IF NOT EXISTS verificari_completitudine (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      proiect_id        INTEGER NOT NULL REFERENCES proiecte(id),
+      activitate        TEXT NOT NULL,
+      stare             TEXT NOT NULL,
+      detaliu           TEXT,
+      linii_asociate_json TEXT,
+      creat_la          TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_verificari_completitudine_proiect ON verificari_completitudine(proiect_id);
   `);
   // "CREATE TABLE IF NOT EXISTS" nu atinge un tabel deja existent -- pe o
   // baza creata inainte de aceasta coloana, ea n-ar aparea niciodata fara
@@ -165,6 +181,11 @@ function deschide(outputDir, numeFisier = 'devize.db') {
   // pentru "utilizator" (pe o baza deja existenta) se verifica in cod, in
   // firmePublic.creeaza(), la fel ca pentru orice alta baza noua oricum.
   adaugaColoana('firme', 'utilizator', 'TEXT');
+  // Scopul proiectului (produs + nivel_livrare + activitati), extras din
+  // documentatia licitatiei -- vezi src/scopProiect.js si comanda
+  // "importa-licitatie". NULL pentru proiectele incarcate manual (flux
+  // vechi, fara nicio legatura cu licitatie-analiza).
+  adaugaColoana('proiecte', 'scop_json', 'TEXT');
   return db;
 }
 
@@ -266,6 +287,13 @@ function creeazaProiect(nume, fisierSursa) {
 const proiectDupaId = (id) => db.prepare('SELECT * FROM proiecte WHERE id = ?').get(id);
 const toateProiectele = () => db.prepare('SELECT * FROM proiecte ORDER BY id DESC').all();
 const actualizeazaStareProiect = (id, stare) => db.prepare('UPDATE proiecte SET stare = ? WHERE id = ?').run(stare, id);
+
+/** Scopul proiectului (produs/nivel_livrare/activitati, vezi scopProiect.js),
+ * salvat ca JSON -- un singur camp, nu un tabel nou, fiindca se citeste mereu
+ * intreg, niciodata interogat pe bucati. */
+function actualizeazaScopProiect(id, scop) {
+  db.prepare('UPDATE proiecte SET scop_json = ? WHERE id = ?').run(JSON.stringify(scop), id);
+}
 
 // ─── Linii de antemasuratoare ────────────────────────────────────────────────
 
@@ -374,6 +402,29 @@ function creeazaProiectPentruFirma(nume, fisierSursa, firmaId) {
 const proiectePeFirma = (firmaId) => db.prepare('SELECT * FROM proiecte WHERE firma_id = ? ORDER BY id DESC').all(firmaId);
 const proiectDupaIdSiFirma = (id, firmaId) => db.prepare('SELECT * FROM proiecte WHERE id = ? AND firma_id = ?').get(id, firmaId);
 
+// ─── Verificare completitudine (src/completitudine.js) ──────────────────────
+
+/** Sterge-si-reinsereaza -- o rerulare a verificarii inlocuieste raportul
+ * vechi, nu-l aduna la el (vezi comentariul de la CREATE TABLE). */
+function salveazaVerificariCompletitudine(proiectId, verificari) {
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM verificari_completitudine WHERE proiect_id = ?').run(proiectId);
+    const ins = db.prepare(`INSERT INTO verificari_completitudine
+      (proiect_id, activitate, stare, detaliu, linii_asociate_json, creat_la) VALUES (?,?,?,?,?,?)`);
+    const acumStamp = acum();
+    for (const v of verificari) {
+      ins.run(proiectId, v.activitate, v.stare, v.detaliu || null, JSON.stringify(v.linii_asociate || []), acumStamp);
+    }
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+}
+const verificariCompletitudinePeProiect = (proiectId) =>
+  db.prepare('SELECT * FROM verificari_completitudine WHERE proiect_id = ? ORDER BY id').all(proiectId);
+
 // ─── Firme ────────────────────────────────────────────────────────────────
 
 function creeazaFirma({ nume, utilizator, email, sare, hash }) {
@@ -418,11 +469,12 @@ module.exports = {
   deschide,
   stergeNomenclator, insereazaArticoleNomenclator, insereazaDescompuneriNomenclator,
   reconstruiesteNomenclatorFts, statisticiNomenclator, cautaNomenclator, cautaArticol, cautaDupaCodExact, copiiDescompunere,
-  creeazaProiect, proiectDupaId, toateProiectele, actualizeazaStareProiect,
+  creeazaProiect, proiectDupaId, toateProiectele, actualizeazaStareProiect, actualizeazaScopProiect,
   insereazaLiniiAntemasuratoare, liniiPeProiect, liniiCuRezolutiiPeProiect,
   salveazaRezolutie, confirmaRezolutie,
   salveazaPretCurent, pretCurent,
   stergeResurseAgregate, adaugaResursaAgregata, resurseAgregatePeProiect,
+  salveazaVerificariCompletitudine, verificariCompletitudinePeProiect,
   creeazaProiectPentruFirma, proiectePeFirma, proiectDupaIdSiFirma,
   salveazaPretCurentFirma, pretCurentFirma, resurseAgregatePeProiectFirma,
   creeazaFirma, firmaDupaEmail, firmaDupaId, toateFirmele, toateFirmeleComplet,
