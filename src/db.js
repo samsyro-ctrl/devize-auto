@@ -186,6 +186,20 @@ function deschide(outputDir, numeFisier = 'devize.db') {
   // "importa-licitatie". NULL pentru proiectele incarcate manual (flux
   // vechi, fara nicio legatura cu licitatie-analiza).
   adaugaColoana('proiecte', 'scop_json', 'TEXT');
+
+  // Suprascrieri de model per task (vezi src/ai.js, cheama()) -- acelasi
+  // tipar ca in recrutare-bot. "rol" e una din cele 3 chei fixe (ROLURI_MODEL,
+  // mai jos), acelasi nume ca variabila din .env pe care o suprascrie. Fara
+  // rand aici = foloseste implicitul din .env, neschimbat. Citita per apel,
+  // nu la pornirea procesului -- o schimbare din pagina de Setari se aplica
+  // la urmatorul apel, fara restart.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS setari_model (
+      rol           TEXT PRIMARY KEY,
+      model_slug    TEXT NOT NULL,
+      actualizat_la TEXT NOT NULL
+    );
+  `);
   return db;
 }
 
@@ -465,6 +479,39 @@ function sesiunePublica(token) {
 }
 const stergeSesiunePublica = (token) => db.prepare('DELETE FROM sesiuni_publice WHERE token = ?').run(token);
 
+// ─── Suprascrieri de model per task ───────────────────────────────────────
+// Cele 3 roluri fixe -- acelasi nume ca variabila din .env pe care o
+// suprascriu (vezi src/ai.js si MODEL din antemasuratoare.js/scopProiect.js/
+// completitudine.js). Un set FIX, nu text liber, ca pagina de Setari sa nu
+// ghiceasca ce rol trimite.
+const ROLURI_MODEL = ['MODEL_EXTRAGERE', 'MODEL_SCOP', 'MODEL_COMPLETITUDINE'];
+
+/** Toate suprascrierile active, ca {rol: model_slug}. Poate fi gol. */
+function setariModel() {
+  if (!db) return {};
+  const randuri = db.prepare('SELECT rol, model_slug FROM setari_model').all();
+  const rezultat = {};
+  for (const r of randuri) rezultat[r.rol] = r.model_slug;
+  return rezultat;
+}
+
+/**
+ * Seteaza (sau sterge, cu '') suprascrierea de model pentru un rol. Validare
+ * stricta pe rol (vezi ROLURI_MODEL) -- un rol necunoscut arunca, nu se
+ * salveaza tacit o cheie pe care nimeni n-ar mai gasi-o. modelSlug gol
+ * revine la implicitul din .env (sterge randul), nu e o eroare.
+ */
+function seteazaModelRol(rol, modelSlug) {
+  if (!db) return;
+  if (!ROLURI_MODEL.includes(rol)) throw new Error(`Rol de model necunoscut: "${rol}"`);
+  const curat = String(modelSlug || '').trim();
+  if (!curat) { db.prepare('DELETE FROM setari_model WHERE rol = ?').run(rol); return; }
+  db.prepare(`
+    INSERT INTO setari_model (rol, model_slug, actualizat_la) VALUES (?, ?, ?)
+    ON CONFLICT(rol) DO UPDATE SET model_slug = excluded.model_slug, actualizat_la = excluded.actualizat_la
+  `).run(rol, curat, acum());
+}
+
 module.exports = {
   deschide,
   stergeNomenclator, insereazaArticoleNomenclator, insereazaDescompuneriNomenclator,
@@ -480,4 +527,5 @@ module.exports = {
   creeazaFirma, firmaDupaEmail, firmaDupaId, toateFirmele, toateFirmeleComplet,
   actualizeazaParolaFirma, actualizeazaUltimaIntrareFirma, actualizeazaUtilizatorFirma,
   insereazaSesiunePublica, sesiunePublica, stergeSesiunePublica,
+  setariModel, seteazaModelRol, ROLURI_MODEL,
 };

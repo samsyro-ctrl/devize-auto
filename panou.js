@@ -27,6 +27,15 @@ const PORT = parseInt(process.env.PANOU_PORT, 10) || 7778;
 const RADACINA = __dirname;
 const OUTPUT_DIR = path.join(RADACINA, 'output');
 
+// Etichetele romanesti ale celor 3 roluri de model, pentru pagina de Setari --
+// tehnic, db.ROLURI_MODEL ajunge, dar "MODEL_SCOP" singur nu spune nimic omului.
+const ETICHETE_ROL_MODEL = {
+  MODEL_EXTRAGERE: 'Extragere linii din antemăsurătoare',
+  MODEL_SCOP: 'Extragere scop proiect (produs, activități)',
+  MODEL_COMPLETITUDINE: 'Verificare completitudine deviz ↔ documentație',
+};
+let cacheModeleOR = { la: 0, lista: [] };
+
 db.deschide(OUTPUT_DIR);
 
 function caleProiect(proiectId, ...parti) {
@@ -216,6 +225,55 @@ const server = http.createServer(async (req, res) => {
         'Content-Disposition': `attachment; filename="${path.basename(cale)}"`,
       });
       return fs.createReadStream(cale).pipe(res);
+    }
+
+    // ─── Setari model (alegere model per task, vezi src/ai.js + db.js) ───
+    if (p === '/api/setari-model' && req.method === 'GET') {
+      const suprascrieri = db.setariModel();
+      const roluri = db.ROLURI_MODEL.map((rol) => {
+        const implicitEnv = process.env[rol] || 'claude-sonnet-5';
+        const suprascris = suprascrieri[rol] || null;
+        return {
+          rol, eticheta: ETICHETE_ROL_MODEL[rol] || rol,
+          implicitEnv, modelActiv: suprascris || implicitEnv, suprascris: !!suprascris,
+        };
+      });
+      return json(res, { roluri });
+    }
+
+    if (p === '/api/setari-model' && req.method === 'POST') {
+      const corp = await citesteCorp(req);
+      if (!db.ROLURI_MODEL.includes(corp.rol)) return json(res, { eroare: 'rol necunoscut' }, 400);
+      try {
+        db.seteazaModelRol(corp.rol, corp.modelSlug);
+      } catch (e) {
+        return json(res, { eroare: e.message }, 400);
+      }
+      return json(res, { ok: true });
+    }
+
+    // Catalogul de modele OpenRouter, pentru selectorul cu cautare din pagina
+    // de Setari. Trecut prin server (nu chemat direct din browser) ca sa
+    // ramana un singur loc care vorbeste cu OpenRouter. Cache in proces, o ora.
+    if (p === '/api/modele-openrouter' && req.method === 'GET') {
+      const ORA = 60 * 60 * 1000;
+      if (Date.now() - cacheModeleOR.la > ORA) {
+        try {
+          const r = await fetch('https://openrouter.ai/api/v1/models');
+          const j = await r.json();
+          cacheModeleOR = {
+            la: Date.now(),
+            lista: (j.data || []).map((m) => ({
+              id: m.id, nume: m.name,
+              structurat: (m.supported_parameters || []).includes('structured_outputs'),
+            })),
+          };
+        } catch (e) {
+          console.warn(`   ⚠️  catalog OpenRouter indisponibil: ${e.message}`);
+          if (!cacheModeleOR.lista.length) return json(res, { eroare: 'Catalogul de modele e indisponibil chiar acum.' }, 502);
+        }
+      }
+      return json(res, { modele: cacheModeleOR.lista });
     }
 
     res.writeHead(404); res.end('Not found');

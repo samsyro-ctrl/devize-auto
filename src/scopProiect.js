@@ -9,7 +9,7 @@
 
 const { cheama } = require('./ai');
 
-const MODEL = process.env.MODEL_EXTRAGERE || 'claude-sonnet-5';
+const MODEL = process.env.MODEL_SCOP || 'claude-sonnet-5';
 
 const SCHEMA = {
   type: 'object',
@@ -142,6 +142,7 @@ async function proceseazaBucataScop(text, eticheta, produsCunoscut, nivelCunoscu
   try {
     resp = await cheama({
       model: MODEL,
+      rol: 'MODEL_SCOP',
       max_tokens: 8192,
       system: SYSTEM,
       output_config: { format: { type: 'json_schema', schema: SCHEMA } },

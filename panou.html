@@ -171,6 +171,7 @@ function antet(tabActiv, proiectId, numeProiect) {
   ` : `
     <div class="meniu-i ${tabActiv==='proiecte'?'activ':''}" onclick="navigheaza('/')">Proiecte</div>
     <div class="meniu-i ${tabActiv==='nou'?'activ':''}" onclick="navigheaza('/nou')">Proiect nou</div>
+    <div class="meniu-i ${tabActiv==='setari'?'activ':''}" onclick="navigheaza('/setari')">Setări</div>
   `;
   return `
     <div class="antet">
@@ -482,6 +483,60 @@ async function paginaDeviz(proiectId) {
     </main>`);
 }
 
+// ─── Pagina: setari (model per task) ────────────────────────────────────────
+async function paginaSetari() {
+  app(antet('setari') + `<main><div class="incarcare">Se încarcă...</div></main>`);
+  let roluri, catalog;
+  try {
+    const [rSetari, rCatalog] = await Promise.all([api('/api/setari-model'), api('/api/modele-openrouter')]);
+    roluri = rSetari.roluri || [];
+    catalog = rCatalog.modele || [];
+  } catch (e) { return eroareGenerala(e); }
+
+  function randRol(rol) {
+    return `<div class="linie-card">
+      <p class="linie-denumire">${esc(rol.eticheta)}</p>
+      <div class="linie-meta">
+        <span>${rol.suprascris ? 'Suprascris' : 'Implicit din .env'} — <b>${esc(rol.modelActiv)}</b></span>
+      </div>
+      <div class="cauta-w">
+        <input class="camp" style="margin-bottom:0" list="lista-modele-or" value="${esc(rol.modelActiv)}" data-rol="${esc(rol.rol)}">
+        <button class="btn primar btn-salveaza" data-rol="${esc(rol.rol)}">Salvează</button>
+        ${rol.suprascris ? `<button class="btn btn-implicit" data-rol="${esc(rol.rol)}">Revino la implicit</button>` : ''}
+      </div>
+    </div>`;
+  }
+
+  app(antet('setari') + `
+    <main style="max-width:720px">
+      <h1>Setări — modele AI</h1>
+      <p class="sub">Alege ce model OpenRouter rulează fiecare task. Fără suprascriere, rămâne implicitul din .env. Se aplică la următorul apel, fără restart.</p>
+      ${roluri.map(randRol).join('')}
+      <datalist id="lista-modele-or">
+        ${catalog.map((m) => `<option value="${esc(m.id)}">${esc(m.nume)}${m.structurat ? '' : ' (fără output JSON strict)'}</option>`).join('')}
+      </datalist>
+    </main>`);
+
+  document.querySelectorAll('.btn-salveaza').forEach((btn) => {
+    btn.onclick = async () => {
+      const rol = btn.dataset.rol;
+      const input = document.querySelector(`input[data-rol="${rol}"]`);
+      try {
+        await api('/api/setari-model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rol, modelSlug: input.value }) });
+        paginaSetari();
+      } catch (e) { alert(e.message); }
+    };
+  });
+  document.querySelectorAll('.btn-implicit').forEach((btn) => {
+    btn.onclick = async () => {
+      try {
+        await api('/api/setari-model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rol: btn.dataset.rol, modelSlug: '' }) });
+        paginaSetari();
+      } catch (e) { alert(e.message); }
+    };
+  });
+}
+
 function eroareGenerala(e) {
   app(antet('proiecte') + `<main><div class="eroare-banda">${esc(e.message)}</div><button class="btn" onclick="navigheaza('/')">Înapoi la proiecte</button></main>`);
 }
@@ -490,6 +545,7 @@ function eroareGenerala(e) {
 function redeseneaza() {
   const seg = segmenteRuta();
   if (seg[0] === 'nou') return paginaProiectNou();
+  if (seg[0] === 'setari') return paginaSetari();
   if (seg[0] === 'proiect' && seg[1]) {
     const id = Number(seg[1]);
     const tab = seg[2] || 'revizuire';

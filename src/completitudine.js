@@ -17,7 +17,7 @@
 const db = require('./db');
 const { cheama } = require('./ai');
 
-const MODEL = process.env.MODEL_EXTRAGERE || 'claude-sonnet-5';
+const MODEL = process.env.MODEL_COMPLETITUDINE || 'claude-sonnet-5';
 
 const SCHEMA = {
   type: 'object',
@@ -111,6 +111,7 @@ async function verificaCompletitudine(proiectId) {
   try {
     resp = await cheama({
       model: MODEL,
+      rol: 'MODEL_COMPLETITUDINE',
       // Mai mult decat la extragere (8192) -- schema cere un verdict per
       // FIECARE activitate, iar lista de activitati (spre deosebire de un
       // document care se poate imparti in bucati) trebuie vazuta intreaga

@@ -17,8 +17,9 @@
 
 const URL_OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
 
-// Scurtaturile deja folosite in .env (MODEL_EXTRAGERE), pastrate ca sa
-// continue sa mearga neschimbate -- acelasi HARTA_MODELE ca in recrutare-bot.
+// Scurtaturile deja folosite in .env (MODEL_EXTRAGERE/MODEL_SCOP/
+// MODEL_COMPLETITUDINE), pastrate ca sa continue sa mearga neschimbate --
+// acelasi HARTA_MODELE ca in recrutare-bot.
 const HARTA_MODELE = {
   'claude-sonnet-5': 'anthropic/claude-sonnet-5',
   'claude-haiku-4-5': 'anthropic/claude-haiku-4.5', // atentie: cratima -> punct
@@ -44,7 +45,19 @@ function traduCerere(cerere) {
       : m.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
     mesaje.push({ role: m.role, content: continut });
   }
-  const body = { model: mapModel(cerere.model), max_tokens: cerere.max_tokens, messages: mesaje };
+
+  // Suprascriere LIVE din pagina de Setari (setari_model, vezi db.js), citita
+  // per apel -- nu la pornirea procesului -- ca o schimbare din panou sa se
+  // aplice la urmatorul apel, fara restart. Fara "rol" pe cerere, sau fara
+  // nicio suprascriere salvata, ramane exact modelul cerut de apelant.
+  let suprascriere = null;
+  if (cerere.rol) {
+    try { suprascriere = require('./db').setariModel()[cerere.rol] || null; } catch { /* fara baza deschisa, folosim implicitul */ }
+  }
+  const model = mapModel(suprascriere || cerere.model);
+  if (suprascriere) console.log(`   🔀 model suprascris pentru ${cerere.rol}: ${model}`);
+
+  const body = { model, max_tokens: cerere.max_tokens, messages: mesaje };
   if (cerere.output_config?.format?.type === 'json_schema') {
     body.response_format = {
       type: 'json_schema',

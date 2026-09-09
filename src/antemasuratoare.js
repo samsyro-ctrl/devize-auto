@@ -97,6 +97,7 @@ async function proceseazaBucata(text, ultimulCapitolInainte, avertismente, etich
   try {
     resp = await cheama({
       model: MODEL,
+      rol: 'MODEL_EXTRAGERE',
       max_tokens: 8192,
       system: SYSTEM,
       output_config: { format: { type: 'json_schema', schema: SCHEMA } },
