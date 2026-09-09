@@ -187,6 +187,17 @@ function deschide(outputDir, numeFisier = 'devize.db') {
   // vechi, fara nicio legatura cu licitatie-analiza).
   adaugaColoana('proiecte', 'scop_json', 'TEXT');
 
+  // Pentru linii generate de "predefineste" (vezi src/generareDeviz.js), nu
+  // incarcate dintr-un document real: cantitatea nu apare explicit in
+  // documentatie, deci ramane necunoscuta -- NU o inventam. "cantitate" ramane
+  // 0 (coloana e NOT NULL), dar "cantitate_necunoscuta"=1 e semnul autoritar --
+  // construiesteDeviz() (deviz.js) refuza sa genereze devizul cat timp mai
+  // exista linii asa, ca un total gresit (subevaluat) sa nu iasa tacut.
+  // "cantitate_sursa" -- citatul/locul din documentatie de unde vine cifra,
+  // cand a fost gasita (populat si pentru liniile CU cantitate cunoscuta).
+  adaugaColoana('antemasuratoare_linii', 'cantitate_necunoscuta', 'INTEGER DEFAULT 0');
+  adaugaColoana('antemasuratoare_linii', 'cantitate_sursa', 'TEXT');
+
   // Suprascrieri de model per task (vezi src/ai.js, cheama()) -- acelasi
   // tipar ca in recrutare-bot. "rol" e una din cele 3 chei fixe (ROLURI_MODEL,
   // mai jos), acelasi nume ca variabila din .env pe care o suprascrie. Fara
@@ -311,13 +322,18 @@ function actualizeazaScopProiect(id, scop) {
 
 // ─── Linii de antemasuratoare ────────────────────────────────────────────────
 
-/** @param {Array<{ordine, capitol, denumire, cantitate, unitate, cod_dat?}>} linii */
+/** @param {Array<{ordine, capitol, denumire, cantitate, unitate, cod_dat?, cantitateNecunoscuta?, cantitateSursa?}>} linii */
 function insereazaLiniiAntemasuratoare(proiectId, linii) {
   if (!linii?.length) return;
-  const ins = db.prepare('INSERT INTO antemasuratoare_linii (proiect_id, ordine, capitol, denumire, cantitate, unitate, cod_dat) VALUES (?,?,?,?,?,?,?)');
+  const ins = db.prepare(`INSERT INTO antemasuratoare_linii
+    (proiect_id, ordine, capitol, denumire, cantitate, unitate, cod_dat, cantitate_necunoscuta, cantitate_sursa)
+    VALUES (?,?,?,?,?,?,?,?,?)`);
   db.exec('BEGIN');
   try {
-    for (const l of linii) ins.run(proiectId, l.ordine, l.capitol || 'Nespecificat', l.denumire, l.cantitate, l.unitate, l.cod_dat || null);
+    for (const l of linii) {
+      ins.run(proiectId, l.ordine, l.capitol || 'Nespecificat', l.denumire, l.cantitate, l.unitate,
+        l.cod_dat || null, l.cantitateNecunoscuta ? 1 : 0, l.cantitateSursa || null);
+    }
     db.exec('COMMIT');
   } catch (e) {
     db.exec('ROLLBACK');
@@ -484,7 +500,7 @@ const stergeSesiunePublica = (token) => db.prepare('DELETE FROM sesiuni_publice 
 // suprascriu (vezi src/ai.js si MODEL din antemasuratoare.js/scopProiect.js/
 // completitudine.js). Un set FIX, nu text liber, ca pagina de Setari sa nu
 // ghiceasca ce rol trimite.
-const ROLURI_MODEL = ['MODEL_EXTRAGERE', 'MODEL_SCOP', 'MODEL_COMPLETITUDINE'];
+const ROLURI_MODEL = ['MODEL_EXTRAGERE', 'MODEL_SCOP', 'MODEL_COMPLETITUDINE', 'MODEL_DESCOMPUNERE', 'MODEL_CANTITATI'];
 
 /** Toate suprascrierile active, ca {rol: model_slug}. Poate fi gol. */
 function setariModel() {

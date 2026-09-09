@@ -33,6 +33,8 @@ const ETICHETE_ROL_MODEL = {
   MODEL_EXTRAGERE: 'Extragere linii din antemăsurătoare',
   MODEL_SCOP: 'Extragere scop proiect (produs, activități)',
   MODEL_COMPLETITUDINE: 'Verificare completitudine deviz ↔ documentație',
+  MODEL_DESCOMPUNERE: 'Devize predefinite — descompune activitate în poziții',
+  MODEL_CANTITATI: 'Devize predefinite — extrage cantități din documentație',
 };
 let cacheModeleOR = { la: 0, lista: [] };
 

@@ -57,6 +57,17 @@ function construiesteDeviz(proiectId, firmaId) {
       + (nerezolvate.length > 5 ? `\n  ... si inca ${nerezolvate.length - 5}.` : ''));
   }
 
+  // Linii generate de "predefineste" (vezi generareDeviz.js) fara cantitate
+  // gasita explicit in documentatie -- devizul NU se genereaza cat timp exista
+  // asa ceva, altfel totalul ar iesi tacut subevaluat (cantitate=0 e doar un
+  // placeholder tehnic, NOT NULL, nu o valoare reala).
+  const faraCantitate = linii.filter((l) => l.cantitate_necunoscuta);
+  if (faraCantitate.length) {
+    const exemple = faraCantitate.slice(0, 5).map((l) => `  #${l.ordine} "${l.denumire}"`).join('\n');
+    throw new Error(`${faraCantitate.length} linii n-au cantitate gasita in documentatie -- completeaz-o manual inainte de generare:\n${exemple}`
+      + (faraCantitate.length > 5 ? `\n  ... si inca ${faraCantitate.length - 5}.` : ''));
+  }
+
   const avertismente = [];
   const capitolePeNume = new Map();
   for (const l of linii) {

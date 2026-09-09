@@ -201,6 +201,25 @@ function comandaExport(args) {
 }
 
 /**
+ * Concateneaza textul caiet de sarcini + fisa de date + clarificari dintr-un
+ * dosar deja clasificat (dosarLicitatie.documenteDinDosar) -- acelasi text
+ * folosit atat pentru extragerea scopului (scopProiect.js), cat si, la
+ * "predefineste", pentru cautarea cantitatilor (generareDeviz.js). Extras
+ * intr-un singur loc ca sa nu difere intre cele doua comenzi.
+ * @returns {Promise<{documente: Array, text: string}>}
+ */
+async function asambleazaTextScop(peClasa, avertismente) {
+  const documente = [...(peClasa.caiet_sarcini || []), ...(peClasa.fisa_date || []), ...(peClasa.clarificari || [])];
+  let text = '';
+  for (const d of documente) {
+    // eslint-disable-next-line no-await-in-loop
+    const t = await extract.textDinFisier({ nume: d.nume, cale: d.cale }, avertismente);
+    if (t) text += `\n\n--- ${d.clasa}: ${d.nume} ---\n${t}`;
+  }
+  return { documente, text };
+}
+
+/**
  * Importa antemasuratoarea + scopul proiectului direct dintr-o licitatie
  * urmarita in licitatie-analiza -- gaseste dosarul, clasifica documentele
  * (src/dosarLicitatie.js), importa "liste_cantitati" (flux existent, impus)
@@ -245,20 +264,13 @@ async function comandaImportaLicitatie(args) {
   const proiectId = await proceseazaIncarcare([listeCantitati[0].cale, '--proiect', nume], matching.alegeMatchCuCod);
   if (!proiectId) { console.error('Importul antemasuratorii a esuat.'); process.exit(1); }
 
-  const documenteScop = [...(peClasa.caiet_sarcini || []), ...(peClasa.fisa_date || []), ...(peClasa.clarificari || [])];
+  const avertismenteScop = [];
+  const { documente: documenteScop, text: textScop } = await asambleazaTextScop(peClasa, avertismenteScop);
   if (!documenteScop.length) {
     console.log('\n⚠️  Niciun caiet de sarcini/fisa de date/clarificare gasit -- scopul proiectului NU a fost extras, "verifica-completitudine" nu va functiona pana nu-l completezi manual.');
     return;
   }
-
   console.log(`\nExtrag scopul proiectului din ${documenteScop.length} documente (${documenteScop.map((d) => d.nume).join(', ')})...`);
-  const avertismenteScop = [];
-  let textScop = '';
-  for (const d of documenteScop) {
-    // eslint-disable-next-line no-await-in-loop
-    const text = await extract.textDinFisier({ nume: d.nume, cale: d.cale }, avertismenteScop);
-    if (text) textScop += `\n\n--- ${d.clasa}: ${d.nume} ---\n${text}`;
-  }
   if (!textScop.trim()) {
     console.log('⚠️  N-am putut extrage text din niciun document de scop -- verifica manual.');
     if (avertismenteScop.length) avertismenteScop.forEach((a) => console.log('  ' + a));
@@ -277,6 +289,89 @@ async function comandaImportaLicitatie(args) {
     avertismenteScop.forEach((a) => console.log('  ' + a));
   }
   console.log(`\nUrmatorul pas: node index.js verifica-completitudine ${proiectId}`);
+}
+
+/**
+ * "Devize predefinite": genereaza liniile de deviz DE LA ZERO, dintr-o
+ * licitatie urmarita in licitatie-analiza care NU are niciun document
+ * "liste_cantitati" (spre deosebire de "importa-licitatie") -- ex. contracte
+ * proiectare+executie, unde ofertantul isi face singur devizul. Vezi
+ * src/generareDeviz.js pentru cei doi pasi (descompunere activitati + cautare
+ * cantitati in documentatie).
+ */
+async function comandaPredefineste(args) {
+  const idLicitatie = args.find((a) => !a.startsWith('--'));
+  const idxNume = args.indexOf('--proiect');
+  const nume = idxNume >= 0 ? args[idxNume + 1] : (idLicitatie ? `Licitatie ${idLicitatie}` : null);
+  if (!idLicitatie) { console.error('Da id-ul licitatiei (ex. SCN1177636).'); process.exit(1); }
+
+  const dirLicitatieAnaliza = process.env.LICITATIE_ANALIZA_DIR;
+  if (!dirLicitatieAnaliza) { console.error('Lipseste LICITATIE_ANALIZA_DIR in .env.'); process.exit(1); }
+  const caleDosar = path.join(dirLicitatieAnaliza, 'dosare', idLicitatie);
+
+  const dosarLicitatie = require('./dosarLicitatie');
+  let peClasa;
+  try {
+    peClasa = dosarLicitatie.documenteDinDosar(caleDosar);
+  } catch (e) {
+    console.error(e.message);
+    process.exit(1);
+  }
+
+  console.log(`Documente gasite in dosarul ${idLicitatie}:`);
+  for (const [clasa, docs] of Object.entries(peClasa)) {
+    console.log(`  ${clasa}: ${docs.map((d) => d.nume).join(', ')}`);
+  }
+
+  const avertismente = [];
+  const { documente: documenteScop, text: textScop } = await asambleazaTextScop(peClasa, avertismente);
+  if (!documenteScop.length || !textScop.trim()) {
+    console.error('\nNiciun caiet de sarcini/fisa de date/clarificare citibil in acest dosar -- fara documentatie tehnica nu se poate genera nimic.');
+    process.exit(1);
+  }
+
+  console.log(`\nExtrag scopul proiectului din ${documenteScop.length} documente (${documenteScop.map((d) => d.nume).join(', ')})...`);
+  const scopProiect = require('./scopProiect');
+  const scop = await scopProiect.extrageScopProiect(textScop, avertismente);
+  console.log(`Produs: ${scop.produs}`);
+  console.log(`Nivel de livrare: ${scop.nivel_livrare}`);
+  console.log(`${scop.activitati.length} activitati extrase din documentatie.`);
+  if (!scop.activitati.length) {
+    console.error('\nNicio activitate extrasa -- nimic de generat.');
+    process.exit(1);
+  }
+
+  console.log('\nGenerez pozitii de deviz din activitati (Claude)...');
+  const generareDeviz = require('./generareDeviz');
+  const linii = await generareDeviz.genereazaLiniiPredefinite(scop, textScop, avertismente);
+  if (!linii.length) {
+    console.error('Nicio pozitie generata.');
+    avertismente.forEach((a) => console.error('  ' + a));
+    process.exit(1);
+  }
+
+  const proiectId = db.creeazaProiect(nume, `predefinit din ${idLicitatie}`);
+  db.insereazaLiniiAntemasuratoare(proiectId, linii);
+  db.actualizeazaScopProiect(proiectId, scop);
+
+  let auto = 0; let deRevizuit = 0; let faraPotrivire = 0;
+  for (const l of db.liniiPeProiect(proiectId)) {
+    const rezolutie = matching.alegeMatch(l);
+    db.salveazaRezolutie(l.id, rezolutie);
+    if (rezolutie.stare === 'auto') auto++;
+    else if (rezolutie.stare === 'fara_potrivire') faraPotrivire++;
+    else deRevizuit++;
+  }
+  db.actualizeazaStareProiect(proiectId, 'matching');
+
+  const faraCantitate = linii.filter((l) => l.cantitateNecunoscuta).length;
+  console.log(`\n${linii.length} pozitii generate -- ${auto} auto-potrivite, ${deRevizuit} de revizuit, ${faraPotrivire} fara potrivire in nomenclator.`);
+  console.log(`${faraCantitate} din ${linii.length} pozitii n-au cantitate gasita in documentatie -- de completat manual (proiectDupaId ${proiectId}, tabel antemasuratoare_linii) inainte sa se poata genera devizul.`);
+  if (avertismente.length) {
+    console.log('\nAvertismente:');
+    avertismente.forEach((a) => console.log('  ' + a));
+  }
+  console.log(`\nProiect creat: #${proiectId}. Urmatorul pas: node index.js revizuieste ${proiectId}`);
 }
 
 /** Verifica daca devizul (deja generat) acopera toate activitatile cerute de
@@ -337,6 +432,7 @@ async function main() {
     case 'incarca-preturi': return comandaIncarcaPreturi(args);
     case 'export': return comandaExport(args);
     case 'importa-licitatie': return comandaImportaLicitatie(args);
+    case 'predefineste': return comandaPredefineste(args);
     case 'verifica-completitudine': return comandaVerificaCompletitudine(args);
     case 'proiecte': return comandaProiecte();
     default:
@@ -344,7 +440,8 @@ async function main() {
   incarca <fisier> --proiect "Nume"        antemasuratoare LIBERA (Excel/PDF/Word) -- aleg singur articolele din nomenclator
   incarca-deviz <fisier> --proiect "Nume"  deviz DEJA structurat (impus), fara valori -- respecta codurile date, semnaleaza ce nu se leaga
   importa-licitatie <idLicitatie> --proiect "Nume"   importa direct dintr-o licitatie urmarita in licitatie-analiza (antemasuratoare + scop)
-  verifica-completitudine <proiectId>  verifica daca devizul acopera tot ce cere documentatia licitatiei (dupa importa-licitatie)
+  predefineste <idLicitatie> --proiect "Nume"        genereaza devizul DE LA ZERO (fara liste_cantitati in dosar) -- din scop + documentatie tehnica
+  verifica-completitudine <proiectId>  verifica daca devizul acopera tot ce cere documentatia licitatiei (dupa importa-licitatie/predefineste)
   revizuieste <proiectId>              revizuieste liniile nesigure/nepotrivite
   genereaza <proiectId>                descompune liniile confirmate in resurse
   preturi <proiectId> [cale.xlsx]      exporta lista de resurse pentru pretuire
