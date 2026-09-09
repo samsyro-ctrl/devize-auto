@@ -8,7 +8,7 @@ folosind nomenclatorul de norme de deviz (indicatoare BC3/FIEBDC-3).
 ```bash
 npm install
 cp .env.example .env
-# completeaza ANTHROPIC_API_KEY si NOMENCLATOR_BC3_DIR in .env
+# completeaza OPENROUTER_API_KEY si NOMENCLATOR_BC3_DIR in .env
 
 node scripts/importa-nomenclator.js --scrie
 node scripts/verifica-nomenclator.js

@@ -89,13 +89,13 @@ function imParte(text, marimeMax) {
  * silentios, cu un singur rand de avertisment usor de trecut cu vederea.
  * @returns {Promise<{linii: Array, ultimulCapitol: string|null}>}
  */
-async function proceseazaBucata(client, text, ultimulCapitolInainte, avertismente, eticheta, adancime = 0) {
+async function proceseazaBucata(text, ultimulCapitolInainte, avertismente, eticheta, adancime = 0) {
   const hint = ultimulCapitolInainte
     ? `\n\n(Ultimul capitol vazut in bucata anterioara a documentului: "${ultimulCapitolInainte}" -- daca bucata asta continua sub acelasi capitol, fara un titlu nou de capitol la inceput, foloseste-l tot pe acela.)`
     : '';
   let resp;
   try {
-    resp = await cheama(client, {
+    resp = await cheama({
       model: MODEL,
       max_tokens: 8192,
       system: SYSTEM,
@@ -116,8 +116,8 @@ async function proceseazaBucata(client, text, ultimulCapitolInainte, avertisment
     }
     let mijloc = text.lastIndexOf('\n', Math.floor(text.length / 2));
     if (mijloc <= 0) mijloc = Math.floor(text.length / 2);
-    const stanga = await proceseazaBucata(client, text.slice(0, mijloc), ultimulCapitolInainte, avertismente, `${eticheta}, jumatatea 1`, adancime + 1);
-    const dreapta = await proceseazaBucata(client, text.slice(mijloc), stanga.ultimulCapitol, avertismente, `${eticheta}, jumatatea 2`, adancime + 1);
+    const stanga = await proceseazaBucata(text.slice(0, mijloc), ultimulCapitolInainte, avertismente, `${eticheta}, jumatatea 1`, adancime + 1);
+    const dreapta = await proceseazaBucata(text.slice(mijloc), stanga.ultimulCapitol, avertismente, `${eticheta}, jumatatea 2`, adancime + 1);
     return { linii: [...stanga.linii, ...dreapta.linii], ultimulCapitol: dreapta.ultimulCapitol };
   }
 
@@ -150,17 +150,14 @@ async function proceseazaBucata(client, text, ultimulCapitolInainte, avertisment
  * @returns {Promise<Array<{ordine, denumire, cantitate, unitate, capitol}>>}
  */
 async function extrageLiniiAntemasuratoare(text, avertismente = []) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('Lipseste ANTHROPIC_API_KEY.');
-  const Anthropic = require('@anthropic-ai/sdk');
-  const client = new Anthropic({ apiKey });
+  if (!process.env.OPENROUTER_API_KEY) throw new Error('Lipseste OPENROUTER_API_KEY.');
 
   const bucati = imParte(text, 40000);
   const toateLiniile = [];
   let ultimulCapitol = null;
 
   for (let i = 0; i < bucati.length; i++) {
-    const rezultat = await proceseazaBucata(client, bucati[i], ultimulCapitol, avertismente, `bucata ${i + 1}/${bucati.length}`);
+    const rezultat = await proceseazaBucata(bucati[i], ultimulCapitol, avertismente, `bucata ${i + 1}/${bucati.length}`);
     ultimulCapitol = rezultat.ultimulCapitol;
     for (const l of rezultat.linii) {
       toateLiniile.push({ ordine: toateLiniile.length + 1, ...l });
