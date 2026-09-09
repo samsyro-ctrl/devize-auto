@@ -140,6 +140,10 @@
 
   .login-w { max-width:380px; margin:12vh auto 0; padding:0 22px; }
   .login-card { background:var(--glass); border:1px solid var(--linie2); border-radius:18px; padding:32px 28px; box-shadow:var(--glass-inner); }
+  .camp-parola-w { position:relative; margin-bottom:20px; }
+  .camp-parola-w .camp { margin-bottom:0; padding-right:42px; }
+  .parola-comuta { position:absolute; right:12px; top:50%; transform:translateY(-50%); color:var(--sters); cursor:pointer; display:flex; }
+  .parola-comuta:hover { color:var(--text); }
   .login-marca { display:flex; align-items:center; gap:10px; font-family:var(--font-display); font-weight:800; font-size:21px; margin-bottom:26px; justify-content:center; }
 </style>
 </head>
@@ -168,6 +172,26 @@ async function api(cale, optiuni) {
 const ic = (cale, marime) => `<svg width="${marime||18}" height="${marime||18}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;flex:none">${cale}</svg>`;
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const banii = (n) => (Number(n) || 0).toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// Camp de parola cu buton de-a vazut/ascuns continutul -- acelasi tipar la
+// login, parola temporara si parola noua, ca omul sa poata verifica ce a
+// scris/dictat inainte sa trimita (parola temporara are exact genul de
+// caractere usor de incurcat -- cifre/litere -- fara asta.
+const IC_OCHI = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/>';
+const IC_OCHI_INCHIS = '<path d="M17.94 17.94A9.13 9.13 0 0 1 12 20c-7 0-11-8-11-8a18.6 18.6 0 0 1 4.22-5.44"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>';
+function campParola(id, autocomplete, onkeydown) {
+  return `<div class="camp-parola-w">
+    <input class="camp" id="${id}" type="password" autocomplete="${autocomplete}"${onkeydown ? ` onkeydown="${onkeydown}"` : ''}>
+    <span class="parola-comuta" id="${id}-comuta" onclick="window.__comutaParola('${id}')">${ic(IC_OCHI, 18)}</span>
+  </div>`;
+}
+window.__comutaParola = (id) => {
+  const camp = document.getElementById(id);
+  const buton = document.getElementById(`${id}-comuta`);
+  const arataParola = camp.type === 'password';
+  camp.type = arataParola ? 'text' : 'password';
+  buton.innerHTML = ic(arataParola ? IC_OCHI_INCHIS : IC_OCHI, 18);
+};
 
 function antet(tabActiv, proiectId, numeProiect) {
   const taburi = proiectId ? `
@@ -205,7 +229,7 @@ function paginaLogin() {
         <label>Email</label>
         <input class="camp" id="login-email" type="email" autocomplete="username">
         <label>Parolă</label>
-        <input class="camp" id="login-parola" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter') window.__login()">
+        ${campParola('login-parola', 'current-password', "if(event.key==='Enter') window.__login()")}
         <div id="login-eroare"></div>
         <button class="btn primar" style="width:100%;justify-content:center" onclick="window.__login()">Intră ${ic('<path d="M5 12h14M13 6l6 6-6 6"/>')}</button>
       </div>
@@ -231,9 +255,9 @@ function paginaSchimbaParola() {
         <div class="login-marca">Prima intrare</div>
         <p class="sub" style="text-align:center">Ai o parolă temporară — alege-ți una nouă acum.</p>
         <label>Parola temporară (primită)</label>
-        <input class="camp" id="sp-veche" type="password" autocomplete="current-password">
+        ${campParola('sp-veche', 'current-password')}
         <label>Parola nouă (minim 8 caractere)</label>
-        <input class="camp" id="sp-noua" type="password" autocomplete="new-password" onkeydown="if(event.key==='Enter') window.__schimbaParola()">
+        ${campParola('sp-noua', 'new-password', "if(event.key==='Enter') window.__schimbaParola()")}
         <div id="sp-eroare"></div>
         <button class="btn primar" style="width:100%;justify-content:center" onclick="window.__schimbaParola()">Salvează și continuă</button>
       </div>
