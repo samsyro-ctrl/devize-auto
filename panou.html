@@ -111,6 +111,7 @@
   td { padding:11px 16px; border-bottom:1px solid var(--linie2); font-size:13.5px; }
   tr:last-child td { border-bottom:none; }
   .tip-tag { font-size:10px; font-weight:700; padding:3px 8px; border-radius:6px; text-transform:uppercase; }
+  .tip-tag.t0 { background:color-mix(in oklch, var(--green-500) 15%, transparent); color:var(--green-500); }
   .tip-tag.t1 { background:var(--poate-f); color:var(--poate); }
   .tip-tag.t2 { background:var(--chip); color:var(--slab); }
   .tip-tag.t3 { background:color-mix(in oklch, var(--orange-500) 15%, transparent); color:var(--orange-500); }
@@ -368,11 +369,11 @@ async function paginaPreturi(proiectId) {
     return app(antet('preturi', proiectId, proiect.nume) + `<main><div class="gol">Nicio resursă generată încă.<br><br><button class="btn primar" onclick="navigheaza('/proiect/${proiectId}/revizuire')">Înapoi la revizuire</button></div></main>`);
   }
 
-  const ETICHETA_TIP = { 1: ['t1', 'Manoperă'], 2: ['t2', 'Utilaj'], 3: ['t3', 'Material'] };
-  let filtruActiv = 0; // 0 = toate
+  const ETICHETA_TIP = { 0: ['t0', 'Transport'], 1: ['t1', 'Manoperă'], 2: ['t2', 'Utilaj'], 3: ['t3', 'Material'] };
+  let filtruActiv = 'toate';
 
   function randare() {
-    const vizibile = filtruActiv ? resurse.filter((r) => r.tip === filtruActiv) : resurse;
+    const vizibile = filtruActiv === 'toate' ? resurse : resurse.filter((r) => r.tip === filtruActiv);
     const faraPret = resurse.filter((r) => !r.pret_curent).length;
 
     const randuri = vizibile.map((r) => {
@@ -392,10 +393,11 @@ async function paginaPreturi(proiectId) {
       <main>
         <div class="titlu-pag"><div><h1>Prețuire resurse</h1><p class="sub" style="margin:0">${resurse.length} resurse agregate · prețurile din cache se completează automat</p></div></div>
         <div class="filtre">
-          <div class="filtru ${filtruActiv===0?'activ':''}" onclick="window.__filtreaza(0)">Toate (${resurse.length})</div>
+          <div class="filtru ${filtruActiv==='toate'?'activ':''}" onclick="window.__filtreaza('toate')">Toate (${resurse.length})</div>
           <div class="filtru ${filtruActiv===3?'activ':''}" onclick="window.__filtreaza(3)">Materiale (${resurse.filter(r=>r.tip===3).length})</div>
           <div class="filtru ${filtruActiv===1?'activ':''}" onclick="window.__filtreaza(1)">Manoperă (${resurse.filter(r=>r.tip===1).length})</div>
           <div class="filtru ${filtruActiv===2?'activ':''}" onclick="window.__filtreaza(2)">Utilaj (${resurse.filter(r=>r.tip===2).length})</div>
+          <div class="filtru ${filtruActiv===0?'activ':''}" onclick="window.__filtreaza(0)">Transport (${resurse.filter(r=>r.tip===0).length})</div>
         </div>
         <div class="tabel-w"><table>
           <tr><th>Resursă</th><th>Tip</th><th class="num">Cantitate</th><th class="num">Preț unitar</th><th class="num">Valoare</th></tr>
@@ -445,10 +447,10 @@ async function paginaDeviz(proiectId) {
     <div class="capitol">
       <div class="capitol-cap"><span>${esc(cap.nume)}</span><span>${banii(cap.total)} lei</span></div>
       <table>
-        <tr><th>Denumire</th><th class="num">Cant.</th><th class="num">Materiale</th><th class="num">Manoperă</th><th class="num">Utilaj</th><th class="num">Total</th></tr>
+        <tr><th>Denumire</th><th class="num">Cant.</th><th class="num">Materiale</th><th class="num">Manoperă</th><th class="num">Utilaj</th><th class="num">Transport</th><th class="num">Total</th></tr>
         ${cap.linii.map((l) => `<tr>
           <td>${esc(l.denumire)}</td><td class="num">${l.cantitate} ${esc(l.unitate)}</td>
-          <td class="num">${banii(l.materiale)}</td><td class="num">${banii(l.manopera)}</td><td class="num">${banii(l.utilaj)}</td><td class="num">${banii(l.total)}</td>
+          <td class="num">${banii(l.materiale)}</td><td class="num">${banii(l.manopera)}</td><td class="num">${banii(l.utilaj)}</td><td class="num">${banii(l.transport)}</td><td class="num">${banii(l.total)}</td>
         </tr>`).join('')}
       </table>
     </div>`).join('');
@@ -467,6 +469,7 @@ async function paginaDeviz(proiectId) {
           <div class="rand"><span>Total Materiale</span><span>${banii(c.totalMateriale)} lei</span></div>
           <div class="rand"><span>Total Manoperă</span><span>${banii(c.totalManopera)} lei</span></div>
           <div class="rand"><span>Total Utilaj</span><span>${banii(c.totalUtilaj)} lei</span></div>
+          <div class="rand"><span>Total Transport</span><span>${banii(c.totalTransport)} lei</span></div>
           <div class="rand grup"><span>Total C+M+U</span><span>${banii(c.totalCMU)} lei</span></div>
           <div class="rand"><span>Cheltuieli indirecte (${c.adaosIndirecteProcent}%)</span><span>${banii(c.indirecte)} lei</span></div>
           <div class="rand"><span>Profit (${c.adaosProfitProcent}%)</span><span>${banii(c.profit)} lei</span></div>

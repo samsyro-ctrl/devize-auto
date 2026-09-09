@@ -9,7 +9,7 @@
 const db = require('./db');
 const { ensureDir } = require('./util');
 
-const ETICHETA_TIP = { 1: 'Manopera', 2: 'Utilaj', 3: 'Material' };
+const ETICHETA_TIP = { 0: 'Transport', 1: 'Manopera', 2: 'Utilaj', 3: 'Material' };
 
 /** Resursele agregate ale unui proiect, cu pretul curent (din cache) alaturat. */
 const listaResursePentruPreturi = (proiectId) => db.resurseAgregatePeProiect(proiectId);
