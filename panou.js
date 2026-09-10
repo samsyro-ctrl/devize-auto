@@ -21,6 +21,7 @@ const matching = require('./src/matching');
 const descompunere = require('./src/descompunere');
 const preturi = require('./src/preturi');
 const deviz = require('./src/deviz');
+const bfla = require('./src/bfla');
 const { slug } = require('./src/util');
 
 const PORT = parseInt(process.env.PANOU_PORT, 10) || 7778;
@@ -129,9 +130,13 @@ const server = http.createServer(async (req, res) => {
         db.insereazaLiniiAntemasuratoare(proiectId, linii);
 
         const alegeMatchFn = flux === 'impus' ? matching.alegeMatchCuCod : matching.alegeMatch;
+        // O singura interogare BFLA pentru tot lotul de linii, nu una per
+        // linie -- vezi REGULA DE AUR din src/bfla.js. Esec sau BFLA
+        // neconfigurat => lista goala, comportament identic cu azi.
+        const bflaEntries = bfla.ACTIV ? await bfla.cauta({ tip: 'potrivire_articol', limita: 500 }) : [];
         let auto = 0; let deRevizuit = 0; let faraPotrivire = 0;
         for (const l of db.liniiPeProiect(proiectId)) {
-          const rezolutie = alegeMatchFn(l);
+          const rezolutie = alegeMatchFn(l, bflaEntries);
           db.salveazaRezolutie(l.id, rezolutie);
           if (rezolutie.stare === 'auto') auto++;
           else if (rezolutie.stare === 'fara_potrivire') faraPotrivire++;
@@ -165,7 +170,19 @@ const server = http.createServer(async (req, res) => {
     if (mRezolutie && req.method === 'POST') {
       const corp = await citesteCorp(req);
       if (!corp.linieId || !corp.colectie || !corp.cod) return json(res, { eroare: 'linieId, colectie si cod sunt obligatorii' }, 400);
-      db.confirmaRezolutie(corp.linieId, corp.colectie, corp.cod);
+      const linie = db.confirmaRezolutie(corp.linieId, corp.colectie, corp.cod);
+      // Scriere in BFLA DUPA ce confirmarea locala a reusit deja -- JSON-ul/
+      // SQLite-ul local ramane sursa de adevar; esecul scrierii in BFLA nu
+      // trebuie sa strice confirmarea, deja salvata (vezi REGULA DE AUR).
+      if (bfla.ACTIV && linie?.denumire) {
+        await bfla.scrie({
+          tip: 'potrivire_articol',
+          cheie: linie.denumire,
+          continut: { colectie: corp.colectie, cod: corp.cod },
+          validatDe: 'Cristian Samson (panou intern)',
+          stare: 'HUMAN_VALIDATED',
+        });
+      }
       return json(res, { ok: true });
     }
 

@@ -14,6 +14,7 @@ const matching = require('./matching');
 const descompunere = require('./descompunere');
 const preturi = require('./preturi');
 const deviz = require('./deviz');
+const bfla = require('./bfla');
 const { slug } = require('./util');
 
 const OUTPUT_DIR = path.join(__dirname, '..', 'output');
@@ -57,11 +58,12 @@ async function proceseazaIncarcare(args, alegeMatchFn) {
   const proiectId = db.creeazaProiect(nume, fisier);
   db.insereazaLiniiAntemasuratoare(proiectId, linii);
 
+  const bflaEntries = bfla.ACTIV ? await bfla.cauta({ tip: 'potrivire_articol', limita: 500 }) : [];
   let auto = 0;
   let deRevizuit = 0;
   let faraPotrivire = 0;
   for (const l of db.liniiPeProiect(proiectId)) {
-    const rezolutie = alegeMatchFn(l);
+    const rezolutie = alegeMatchFn(l, bflaEntries);
     db.salveazaRezolutie(l.id, rezolutie);
     if (rezolutie.stare === 'auto') auto++;
     else if (rezolutie.stare === 'fara_potrivire') faraPotrivire++;
@@ -88,6 +90,20 @@ const comandaIncarca = (args) => proceseazaIncarcare(args, matching.alegeMatch);
  * are prioritate (vezi matching.alegeMatchCuCod); doar cand lipseste sau
  * nu exista se cade pe cautare libera, semnalat explicit. */
 const comandaIncarcaDeviz = (args) => proceseazaIncarcare(args, matching.alegeMatchCuCod);
+
+/** Confirma local (sursa de adevar), apoi scrie in BFLA -- esecul scrierii
+ * in BFLA nu trebuie sa strice confirmarea, deja salvata (REGULA DE AUR). */
+async function confirmaSiScrieInBfla(linie, ales) {
+  db.confirmaRezolutie(linie.id, ales.colectie, ales.cod);
+  if (!bfla.ACTIV) return;
+  await bfla.scrie({
+    tip: 'potrivire_articol',
+    cheie: linie.denumire,
+    continut: { colectie: ales.colectie, cod: ales.cod },
+    validatDe: 'Cristian Samson (CLI)',
+    stare: 'HUMAN_VALIDATED',
+  });
+}
 
 async function comandaRevizuieste(args) {
   const proiectId = Number(args[0]);
@@ -123,12 +139,14 @@ async function comandaRevizuieste(args) {
       // eslint-disable-next-line no-await-in-loop
       const alegere = await intreaba('  Alege numarul (sau Enter ca sa renunti): ');
       const ales = candidati[Number(alegere) - 1];
-      if (ales) db.confirmaRezolutie(l.id, ales.colectie, ales.cod);
+      // eslint-disable-next-line no-await-in-loop
+      if (ales) await confirmaSiScrieInBfla(l, ales);
       continue;
     }
 
     const ales = candidati[Number(raspuns) - 1];
-    if (ales) db.confirmaRezolutie(l.id, ales.colectie, ales.cod);
+    // eslint-disable-next-line no-await-in-loop
+    if (ales) await confirmaSiScrieInBfla(l, ales);
     else console.log('  Numar invalid, sarit.');
   }
   rl.close();
@@ -354,9 +372,10 @@ async function comandaPredefineste(args) {
   db.insereazaLiniiAntemasuratoare(proiectId, linii);
   db.actualizeazaScopProiect(proiectId, scop);
 
+  const bflaEntries = bfla.ACTIV ? await bfla.cauta({ tip: 'potrivire_articol', limita: 500 }) : [];
   let auto = 0; let deRevizuit = 0; let faraPotrivire = 0;
   for (const l of db.liniiPeProiect(proiectId)) {
-    const rezolutie = matching.alegeMatch(l);
+    const rezolutie = matching.alegeMatch(l, bflaEntries);
     db.salveazaRezolutie(l.id, rezolutie);
     if (rezolutie.stare === 'auto') auto++;
     else if (rezolutie.stare === 'fara_potrivire') faraPotrivire++;

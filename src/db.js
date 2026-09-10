@@ -150,6 +150,33 @@ function deschide(outputDir, numeFisier = 'devize.db') {
       actualizat_la TEXT NOT NULL,
       PRIMARY KEY (firma_id, colectie, cod)
     );
+    -- Provenienta completa de preturi (DEVIZE_ARCHITECTURE.md §9.2/§9.3,
+    -- adaugata aditiv -- NU inlocuieste "preturi_curente"/"preturi_curente_firma",
+    -- care raman cache-ul rapid de "cel mai bun pret curent" folosit direct de
+    -- deviz.js). Un rand per OBSERVATIE de pret (nu upsert pe colectie+cod --
+    -- de-aia "id" e cheia, nu (colectie,cod)), ca istoricul sa nu se piarda la
+    -- fiecare actualizare. "preturi_curente" poate fi derivat de-aici (cea mai
+    -- recenta/de incredere observatie per articol), dar asta ramane un pas
+    -- separat, viitor -- vezi Faza C.
+    CREATE TABLE IF NOT EXISTS istoric_preturi (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      colectie        TEXT NOT NULL,
+      cod             TEXT NOT NULL,
+      pret            REAL NOT NULL,
+      moneda          TEXT NOT NULL DEFAULT 'RON',
+      tva_inclus      INTEGER NOT NULL DEFAULT 0,
+      tip_sursa       TEXT NOT NULL,
+      furnizor        TEXT,
+      document_sursa  TEXT,
+      proiect_id      INTEGER REFERENCES proiecte(id),
+      firma_id        INTEGER REFERENCES firme(id),
+      localitate      TEXT,
+      valabil_pana    TEXT,
+      status_validare TEXT NOT NULL DEFAULT 'nevalidat',
+      introdus_de     TEXT,
+      creat_la        TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_istoric_preturi_articol ON istoric_preturi(colectie, cod);
 
     -- Rezultatul verificarii de completitudine (src/completitudine.js) -- o
     -- linie per activitate ceruta de documentatia licitatiei, cu verdictul
@@ -356,9 +383,13 @@ function salveazaRezolutie(linieId, rezolutie) {
       rezolutie.stare, rezolutie.candidati_json || '[]', rezolutie.nota || null, acum());
 }
 
+// Intoarce {denumire} liniei confirmate -- apelantii (rutele de rezolutie)
+// au nevoie de ea ca sa scrie in BFLA (cheia experientei e denumirea), fara
+// sa mai faca o interogare separata doar pentru atat.
 function confirmaRezolutie(linieId, colectie, cod) {
   db.prepare(`UPDATE rezolutii_matching SET colectie = ?, cod = ?, stare = 'confirmat', rezolvat_la = ? WHERE linie_id = ?`)
     .run(colectie, cod, acum(), linieId);
+  return db.prepare('SELECT denumire FROM antemasuratoare_linii WHERE id = ?').get(linieId);
 }
 
 /** Liniile unui proiect, cu rezolutia lor de matching alaturata (LEFT JOIN --
@@ -378,6 +409,38 @@ function salveazaPretCurent(colectie, cod, pret) {
 }
 
 const pretCurent = (colectie, cod) => db.prepare('SELECT pret FROM preturi_curente WHERE colectie = ? AND cod = ?').get(colectie, cod)?.pret ?? null;
+
+// ─── Istoric de preturi (provenienta completa, DEVIZE_ARCHITECTURE.md §9) ────
+
+const TIPURI_SURSA_PRET = ['MARKET_ESTIMATE', 'SUPPLIER_QUOTE', 'CONTRACTOR_QUOTE', 'NEGOTIATED_PRICE', 'CONTRACTED_PRICE', 'ACTUAL_COST'];
+
+/** Inregistreaza o OBSERVATIE de pret, cu proveniata completa -- nu suprascrie
+ * nimic (spre deosebire de salveazaPretCurent). Aditiv la "preturi_curente",
+ * care ramane neschimbat si continua sa fie sursa folosita de deviz.js. */
+function adaugaIstoricPret({
+  colectie, cod, pret, moneda, tvaInclus, tipSursa, furnizor, documentSursa,
+  proiectId, firmaId, localitate, valabilPana, statusValidare, introdusDe,
+}) {
+  if (!colectie || !cod) throw new Error('colectie si cod sunt obligatorii');
+  if (!Number.isFinite(pret)) throw new Error('pretul trebuie sa fie un numar');
+  if (!TIPURI_SURSA_PRET.includes(tipSursa)) {
+    throw new Error(`tip_sursa necunoscut: "${tipSursa}" (asteptat unul din: ${TIPURI_SURSA_PRET.join(', ')})`);
+  }
+  db.prepare(`INSERT INTO istoric_preturi
+      (colectie, cod, pret, moneda, tva_inclus, tip_sursa, furnizor, document_sursa,
+       proiect_id, firma_id, localitate, valabil_pana, status_validare, introdus_de, creat_la)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(
+      colectie, cod, pret, moneda || 'RON', tvaInclus ? 1 : 0, tipSursa,
+      furnizor || null, documentSursa || null, proiectId || null, firmaId || null,
+      localitate || null, valabilPana || null, statusValidare || 'nevalidat', introdusDe || null, acum(),
+    );
+}
+
+/** Istoricul de preturi observate pentru un articol, cel mai recent primul. */
+const istoricPreturiPentruArticol = (colectie, cod, limita = 50) => db.prepare(
+  'SELECT * FROM istoric_preturi WHERE colectie = ? AND cod = ? ORDER BY creat_la DESC LIMIT ?',
+).all(colectie, cod, limita);
 
 // ─── Resurse agregate ─────────────────────────────────────────────────────────
 
@@ -536,6 +599,7 @@ module.exports = {
   insereazaLiniiAntemasuratoare, liniiPeProiect, liniiCuRezolutiiPeProiect,
   salveazaRezolutie, confirmaRezolutie,
   salveazaPretCurent, pretCurent,
+  adaugaIstoricPret, istoricPreturiPentruArticol, TIPURI_SURSA_PRET,
   stergeResurseAgregate, adaugaResursaAgregata, resurseAgregatePeProiect,
   salveazaVerificariCompletitudine, verificariCompletitudinePeProiect,
   creeazaProiectPentruFirma, proiectePeFirma, proiectDupaIdSiFirma,

@@ -20,6 +20,7 @@ const antemasuratoare = require('./src/antemasuratoare');
 const matching = require('./src/matching');
 const descompunere = require('./src/descompunere');
 const deviz = require('./src/deviz');
+const bfla = require('./src/bfla');
 const { slug } = require('./src/util');
 const firmePublic = require('./src/firmePublic');
 
@@ -212,9 +213,13 @@ const server = http.createServer(async (req, res) => {
         db.insereazaLiniiAntemasuratoare(proiectId, linii);
 
         const alegeMatchFn = flux === 'impus' ? matching.alegeMatchCuCod : matching.alegeMatch;
+        // O singura interogare BFLA pentru tot lotul de linii, nu una per
+        // linie -- vezi REGULA DE AUR din src/bfla.js. Esec sau BFLA
+        // neconfigurat => lista goala, comportament identic cu azi.
+        const bflaEntries = bfla.ACTIV ? await bfla.cauta({ tip: 'potrivire_articol', limita: 500 }) : [];
         let auto = 0; let deRevizuit = 0; let faraPotrivire = 0;
         for (const l of db.liniiPeProiect(proiectId)) {
-          const rezolutie = alegeMatchFn(l);
+          const rezolutie = alegeMatchFn(l, bflaEntries);
           if (rezolutie.candidati_json) rezolutie.candidati_json = faraPretDinJson(rezolutie.candidati_json);
           db.salveazaRezolutie(l.id, rezolutie);
           if (rezolutie.stare === 'auto') auto++;
@@ -249,7 +254,21 @@ const server = http.createServer(async (req, res) => {
       if (!db.proiectDupaIdSiFirma(proiectId, firmaId)) return json(res, { eroare: 'proiect inexistent' }, 404);
       const corp = await citesteCorp(req);
       if (!corp.linieId || !corp.colectie || !corp.cod) return json(res, { eroare: 'linieId, colectie si cod sunt obligatorii' }, 400);
-      db.confirmaRezolutie(corp.linieId, corp.colectie, corp.cod);
+      const linie = db.confirmaRezolutie(corp.linieId, corp.colectie, corp.cod);
+      // Scriere in BFLA DUPA ce confirmarea locala a reusit deja -- baza
+      // publica ramane sursa de adevar; esecul scrierii in BFLA nu trebuie
+      // sa strice confirmarea, deja salvata (vezi REGULA DE AUR). "validatDe"
+      // e firma, nu o persoana -- azi nu exista identitate de utilizator
+      // separata de firma (vezi DEVIZE_ARCHITECTURE.md §10).
+      if (bfla.ACTIV && linie?.denumire) {
+        await bfla.scrie({
+          tip: 'potrivire_articol',
+          cheie: linie.denumire,
+          continut: { colectie: corp.colectie, cod: corp.cod },
+          validatDe: sesiune?.nume || 'firma necunoscuta',
+          stare: 'HUMAN_VALIDATED',
+        });
+      }
       return json(res, { ok: true });
     }
 

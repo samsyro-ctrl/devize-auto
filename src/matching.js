@@ -76,12 +76,55 @@ function gasesteCandidati(denumire, limita = 10) {
   return compusi;
 }
 
+/** Normalizare STRICTA (nu fuzzy) pentru compararea denumirilor la cautarea
+ * in BFLA -- un "identic" prea permisiv ar putea uni doua articole diferite
+ * descrise asemanator; doar spatii/majuscule se ignora. */
+const normalizeazaDenumireBfla = (text) => String(text || '').toLowerCase().trim().replace(/\s+/g, ' ');
+
+/**
+ * Cauta, in lotul de experiente BFLA deja adus (o singura interogare per
+ * lot, nu una per linie -- vezi apelantii din panou.js/public-server.js/
+ * cli.js), o potrivire cu denumire STRICT identica. Articolul referit e
+ * reverificat ca inca exista si e un compus valid -- nomenclatorul se poate
+ * schimba intre proiecte, o experienta BFLA veche nu trebuie sa produca
+ * orbeste o linie stricata.
+ * @returns {null|{stare, colectie, cod, scor, candidati_json, nota}}
+ */
+function dinBfla(linie, bflaEntries) {
+  if (!bflaEntries || !bflaEntries.length) return null;
+  const cheieLinie = normalizeazaDenumireBfla(linie.denumire);
+  if (!cheieLinie) return null;
+  const gasit = bflaEntries.find((e) => normalizeazaDenumireBfla(e.cheie) === cheieLinie);
+  const { colectie, cod } = gasit?.continut || {};
+  if (!colectie || !cod) return null;
+
+  const articol = db.cautaArticol(colectie, cod);
+  if (!articol || articol.tip != null || cod.endsWith('#') || !areDescompunere(colectie, cod)) return null;
+
+  const unitateCompatibila = articol.unitate && normalizeazaUnitate(articol.unitate) === normalizeazaUnitate(linie.unitate);
+  return {
+    stare: unitateCompatibila ? 'auto' : 'de_revizuit',
+    colectie, cod, scor: null,
+    candidati_json: JSON.stringify([{ colectie, cod, unitate: articol.unitate, descriere: articol.descriere, pret: articol.pret }]),
+    nota: unitateCompatibila
+      ? 'potrivire din BFLA -- aceeasi denumire a fost confirmata manual la un proiect anterior'
+      : `potrivire din BFLA (proiect anterior), dar unitatea din nomenclator (${articol.unitate}) nu se potriveste cu cea din deviz (${linie.unitate}).`,
+  };
+}
+
 /**
  * Alege (sau nu) o potrivire automata pentru o linie de antemasuratoare.
  * @param {{denumire, unitate}} linie
+ * @param {Array} bflaEntries lot de experiente BFLA (tip 'potrivire_articol'),
+ *   adus o singura data de apelant inainte de bucla -- vezi REGULA DE AUR din
+ *   bfla.js (niciun apel de retea per linie). Implicit gol -- comportament
+ *   neschimbat pentru orice apelant care nu-l trimite.
  * @returns {{stare, colectie, cod, scor, candidati_json}}
  */
-function alegeMatch(linie) {
+function alegeMatch(linie, bflaEntries = []) {
+  const potrivireBfla = dinBfla(linie, bflaEntries);
+  if (potrivireBfla) return potrivireBfla;
+
   const candidati = gasesteCandidati(linie.denumire);
   if (!candidati.length) {
     return { stare: 'fara_potrivire', candidati_json: '[]' };
@@ -124,15 +167,17 @@ function candidatiDupaCodExact(cod) {
  * ca omul sa stie ca alternativa NU vine din codul impus, ci dintr-o
  * cautare de rezerva, si trebuie verificata cu atentie.
  * @param {{denumire, unitate, cod_dat}} linie
+ * @param {Array} bflaEntries vezi alegeMatch -- transmis mai departe la
+ *   fallback-ul pe denumire, cand codul dat lipseste sau nu exista.
  * @returns {{stare, colectie, cod, scor, candidati_json, nota}}
  */
-function alegeMatchCuCod(linie) {
-  if (!linie.cod_dat) return alegeMatch(linie);
+function alegeMatchCuCod(linie, bflaEntries = []) {
+  if (!linie.cod_dat) return alegeMatch(linie, bflaEntries);
 
   const potriviri = candidatiDupaCodExact(linie.cod_dat);
 
   if (!potriviri.length) {
-    const fallback = alegeMatch(linie);
+    const fallback = alegeMatch(linie, bflaEntries);
     return {
       ...fallback,
       stare: 'de_revizuit',
