@@ -171,7 +171,7 @@ function antet(tabActiv, proiectId, numeProiect) {
   ` : `
     <div class="meniu-i ${tabActiv==='proiecte'?'activ':''}" onclick="navigheaza('/')">Proiecte</div>
     <div class="meniu-i ${tabActiv==='nou'?'activ':''}" onclick="navigheaza('/nou')">Proiect nou</div>
-    <div class="meniu-i ${tabActiv==='setari'?'activ':''}" onclick="navigheaza('/setari')">Setări</div>
+    <div class="meniu-i ${tabActiv==='setari'?'activ':''}" onclick="navigheaza('/setari')">Modele AI</div>
   `;
   return `
     <div class="antet">
@@ -509,7 +509,7 @@ async function paginaSetari() {
 
   app(antet('setari') + `
     <main style="max-width:720px">
-      <h1>Setări — modele AI</h1>
+      <h1>Modele AI</h1>
       <p class="sub">Alege ce model OpenRouter rulează fiecare task. Fără suprascriere, rămâne implicitul din .env. Se aplică la următorul apel, fără restart.</p>
       ${roluri.map(randRol).join('')}
       <datalist id="lista-modele-or">
