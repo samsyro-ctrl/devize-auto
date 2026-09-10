@@ -1,6 +1,6 @@
 {
-  "name": "Devize Auto — Build&Fix AI",
-  "short_name": "Devize Auto",
+  "name": "devize.buildandfix.ai",
+  "short_name": "devize.buildandfix.ai",
   "description": "Generare și verificare devize din documentația de licitație.",
   "start_url": "/",
   "scope": "/",

@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Devize Auto">
+<meta name="apple-mobile-web-app-title" content="devize.buildandfix.ai">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Hanken+Grotesk:wght@400;500;600;650;700&family=JetBrains+Mono:wght@500&display=swap">
 <style>
   /* — Sistemul de design Build&Fix, acelasi ca in panou.html (intern) si licitatie-analiza — */
@@ -184,17 +184,11 @@ function navigheaza(ruta) { location.hash = ruta; }
 window.addEventListener('hashchange', redeseneaza);
 
 // ─── Instalare ca aplicatie (PWA) ───────────────────────────────────────────
-// Chrome/Edge (desktop + Android) anunta cand aplicatia e instalabila prin
-// acest eveniment -- il prindem devreme (poate veni oricand dupa incarcare,
-// nu neaparat cand omul e pe Administrare) si il pastram pana la click pe
-// buton. Safari (iOS/macOS) nu trimite niciodata evenimentul asta -- acolo
-// butonul arata instructiuni manuale (Distribuie -> Adauga pe ecranul principal).
-let PROMPT_INSTALARE = null;
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  PROMPT_INSTALARE = e;
-});
-window.addEventListener('appinstalled', () => { PROMPT_INSTALARE = null; });
+// Tab-ul "Instalare" din Administrare arata DOAR instructiuni statice (desktop
+// + mobil deodata) -- nu mai incearca beforeinstallprompt (dus la o confuzie:
+// uneori native, uneori text, dupa cum nimerea browserul). Inregistrarea SW
+// ramane -- e ce face pagina instalabila prin UI-ul PROPRIU al browserului
+// (icoana din bara de adrese etc.), independent de tab-ul nostru.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
 }
@@ -619,14 +613,20 @@ async function paginaDeviz(proiectId) {
 }
 
 // ─── Pagina: administrare (model per task, STRICT firma-proprietar) ────────
+// Doua tab-uri: "Modele AI" (continutul de baza) si "Instalare" (doar
+// instructiuni statice, desktop + mobil deodata -- niciun continut comun
+// intre ele, alegerea unui tab il ascunde complet pe celalalt).
+let ADMIN_TAB = 'modele';
 async function paginaAdministrare() {
   app(antet('administrare') + `<main><div class="incarcare">Se încarcă...</div></main>`);
-  let roluri, catalog;
-  try {
-    const [rSetari, rCatalog] = await Promise.all([api('/api/setari-model'), api('/api/modele-openrouter')]);
-    roluri = rSetari.roluri || [];
-    catalog = rCatalog.modele || [];
-  } catch (e) { return eroareGenerala(e); }
+  let roluri = [], catalog = [];
+  if (ADMIN_TAB === 'modele') {
+    try {
+      const [rSetari, rCatalog] = await Promise.all([api('/api/setari-model'), api('/api/modele-openrouter')]);
+      roluri = rSetari.roluri || [];
+      catalog = rCatalog.modele || [];
+    } catch (e) { return eroareGenerala(e); }
+  }
 
   function randRol(rol) {
     return `<div class="linie-card">
@@ -645,47 +645,43 @@ async function paginaAdministrare() {
     </div>`;
   }
 
-  // ─── Bara de tab-uri + instalare ca aplicatie (PWA) ───────────────────────
-  // Instalarea nu e un tab de continut (Administrare are un singur tab real
-  // azi, "Modele AI") -- e o actiune, de-aia sta separata, impinsa la capatul
-  // din dreapta al barei (margin-left:auto), la fel ca in licitatie-analiza.
-  // beforeinstallprompt (Chrome/Edge, desktop+Android) poate sosi oricand dupa
-  // incarcarea paginii -- daca a sosit deja, PROMPT_INSTALARE e populat pana
-  // aici. Safari (iOS/macOS) nu-l trimite niciodata -- acolo aratam
-  // instructiuni manuale in loc de buton nefunctional. Daca aplicatia e deja
-  // instalata, pilula nici nu apare -- nimic de facut acolo.
-  const iOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  // ─── Bara de tab-uri: "Modele AI" langa "Instalare" ───────────────────────
+  // Doua tab-uri REALE -- alegerea unuia ascunde complet continutul
+  // celuilalt (nu mai coexista, cum se intampla cand "Instalare" era doar un
+  // buton separat langa un card care ramanea vizibil sub el). Pilula
+  // "Instalare" dispare singura cand aplicatia ruleaza deja standalone.
   const instalata = aplicatiaEInstalata();
   const tabbar = `<div class="cauta-w">
-    <div class="filtru activ">Modele AI</div>
-    ${instalata ? '' : `<button class="filtru" id="btn-instaleaza" style="margin-left:auto;border:none">Instalare</button>`}
-  </div>
-  ${instalata ? '' : `<p class="sub" id="instalare-instructiuni" style="margin-bottom:16px"${iOS ? '' : ' hidden'}>
-    ${iOS
-      ? 'Pe iPhone/iPad (Safari): atinge <b>Distribuie</b> (pătratul cu săgeată în sus) → <b>Adaugă pe ecranul principal</b>.'
-      : 'Pe desktop (Chrome/Edge): meniul <b>⋮</b> din browser → <b>Instalează aplicația</b> (sau <b>Creează shortcut</b>, cu „Open as window” bifat).'}
-  </p>`}`;
+    <button class="filtru ${ADMIN_TAB==='modele'?'activ':''}" onclick="window.__setAdminTab('modele')">Modele AI</button>
+    ${instalata ? '' : `<button class="filtru ${ADMIN_TAB==='instalare'?'activ':''}" onclick="window.__setAdminTab('instalare')">Instalare</button>`}
+  </div>`;
+
+  const continutModele = `
+    <p class="sub">Vizibil strict pentru firma-proprietar. Scrie ca să filtrezi, dintre toate cele ${catalog.length} disponibile. Se aplică la următorul apel, fără redeploy.</p>
+    ${roluri.map(randRol).join('')}`;
+
+  // Instructiuni STATICE, desktop si mobil deodata -- niciun beforeinstallprompt
+  // declansat de aici (raportat: comportament inconsecvent, uneori prompt
+  // nativ, uneori text, dupa cum nimerea browserul). Doar text, mereu acelasi.
+  const continutInstalare = `
+    <div class="linie-card">
+      <p class="linie-denumire">Pe desktop (Chrome, Edge)</p>
+      <p class="sub" style="margin:0">Meniul <b>⋮</b> din browser → <b>Instalează aplicația</b> (sau <b>Creează shortcut</b>, cu „Open as window” bifat) → click-dreapta pe icoana nou-creată → <b>Pin to taskbar</b>.</p>
+    </div>
+    <div class="linie-card">
+      <p class="linie-denumire">Pe telefon</p>
+      <p class="sub" style="margin:0 0 10px">Android (Chrome): meniul <b>⋮</b> → <b>Instalează aplicația</b> (sau <b>Adaugă pe ecranul principal</b>).</p>
+      <p class="sub" style="margin:0">iPhone/iPad (Safari): atinge <b>Distribuie</b> (pătratul cu săgeată în sus) → <b>Adaugă pe ecranul principal</b>.</p>
+    </div>`;
 
   app(antet('administrare') + `
     <main style="max-width:720px">
       <h1>Administrare</h1>
       ${tabbar}
-      <p class="sub">Vizibil strict pentru firma-proprietar. Scrie ca să filtrezi, dintre toate cele ${catalog.length} disponibile. Se aplică la următorul apel, fără redeploy.</p>
-      ${roluri.map(randRol).join('')}
+      ${ADMIN_TAB === 'instalare' ? continutInstalare : continutModele}
     </main>`);
 
-  const btnInstaleaza = document.getElementById('btn-instaleaza');
-  if (btnInstaleaza) {
-    btnInstaleaza.onclick = async () => {
-      if (PROMPT_INSTALARE) {
-        PROMPT_INSTALARE.prompt();
-        try { await PROMPT_INSTALARE.userChoice; } catch {}
-        PROMPT_INSTALARE = null;
-      } else {
-        document.getElementById('instalare-instructiuni').hidden = false;
-      }
-    };
-  }
+  window.__setAdminTab = (tab) => { ADMIN_TAB = tab; paginaAdministrare(); };
 
   // ─── Combo box cautabil (vezi CSS .model-combo) ───────────────────────────
   // Motiv: <datalist> nativ arata doar un numar limitat de sugestii cand
