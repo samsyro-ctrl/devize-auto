@@ -340,6 +340,27 @@ const server = http.createServer(async (req, res) => {
       return json(res, { preturi });
     }
 
+    // Leaga MANUAL un pret castigator (BFLA, doar referinta) de un cod anume
+    // din nomenclator -- omul cauta si alege codul (vezi /api/cauta), noi
+    // doar salvam ce a ales el. Niciodata potrivire automata AI aici.
+    if (p === '/api/preturi-castigatoare/aplica' && req.method === 'POST') {
+      const corp = await citesteCorp(req);
+      if (!corp.colectie || !corp.cod || !Number.isFinite(corp.pret)) {
+        return json(res, { eroare: 'colectie, cod si pret sunt obligatorii' }, 400);
+      }
+      db.salveazaPretCurent(corp.colectie, corp.cod, corp.pret);
+      db.adaugaIstoricPretSigur({
+        colectie: corp.colectie,
+        cod: corp.cod,
+        pret: corp.pret,
+        moneda: corp.moneda || 'RON',
+        tipSursa: 'SUPPLIER_QUOTE',
+        furnizor: corp.firma || null,
+        introdusDe: 'Cristian Samson (panou intern)',
+      });
+      return json(res, { ok: true });
+    }
+
     res.writeHead(404); res.end('Not found');
   } catch (e) {
     console.error(e);

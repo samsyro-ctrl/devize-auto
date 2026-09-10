@@ -553,13 +553,25 @@ async function paginaSetari() {
     </div>`;
   }
 
-  function randPretFurnizor(p) {
+  function randCandidatFurnizor(c, index) {
+    return `<div class="candidat" onclick="window.__aplicaLaCod(${index}, '${esc(c.colectie)}', '${esc(c.cod)}')">
+      <div class="candidat-info"><p class="candidat-desc">${esc(c.descriere)}</p><span class="candidat-cod">${esc(c.colectie)} / ${esc(c.cod)}</span></div>
+      <span class="candidat-um">${esc(c.unitate||'')}</span>
+    </div>`;
+  }
+
+  function randPretFurnizor(p, index) {
     return `<div class="linie-card">
       <p class="linie-denumire">${esc(p.firma)}</p>
       <div class="linie-meta">
         <span>${p.pret != null ? banii(p.pret) + ' ' + esc(p.moneda) : '—'}${p.durata ? ' · ' + esc(p.durata) : ''}</span>
       </div>
       <p class="sub" style="margin:4px 0 0">${p.creatLa ? new Date(p.creatLa).toLocaleDateString('ro-RO') : ''}${p.validatDe ? ' · ales de ' + esc(p.validatDe) : ''}</p>
+      <div class="cauta-w">
+        <input placeholder="Caută codul din nomenclator la care se aplică..." onkeydown="if(event.key==='Enter') window.__cautaPentruFurnizor(${index}, this.value)">
+        <button class="btn" onclick="window.__cautaPentruFurnizor(${index}, this.previousElementSibling.value)">Aplică la un cod</button>
+      </div>
+      <div id="rezultate-cauta-furnizor-${index}"></div>
     </div>`;
   }
 
@@ -573,8 +585,8 @@ async function paginaSetari() {
     ${roluri.map(randRol).join('')}`;
 
   const continutPreturiFurnizori = preturiFurnizori.length
-    ? `<p class="sub">Prețuri câștigătoare din căutările recente de furnizori (recrutare-bot) -- doar referință, nu sunt legate automat de un material anume din devize. ${preturiFurnizori.length} intrări.</p>
-       ${preturiFurnizori.map(randPretFurnizor).join('')}`
+    ? `<p class="sub">Prețuri câștigătoare din căutările recente de furnizori (recrutare-bot) -- nu sunt legate automat de un material anume din devize, dar poți lega manual un preț la un cod. ${preturiFurnizori.length} intrări.</p>
+       ${preturiFurnizori.map((p, i) => randPretFurnizor(p, i)).join('')}`
     : `<p class="sub">Nicio ofertă câștigătoare înregistrată încă în recrutare-bot.</p>`;
 
   app(antet('setari') + `
@@ -585,6 +597,32 @@ async function paginaSetari() {
     </main>`);
 
   window.__setAdminTab = (tab) => { ADMIN_TAB = tab; paginaSetari(); };
+
+  window.__cautaPentruFurnizor = async (index, text) => {
+    const container = document.getElementById(`rezultate-cauta-furnizor-${index}`);
+    if (!text || !text.trim()) { container.innerHTML = ''; return; }
+    container.innerHTML = '<p style="font-size:12px;color:var(--sters);margin:8px 0">Se caută...</p>';
+    try {
+      const rezultate = await api(`/api/cauta?q=${encodeURIComponent(text)}`);
+      container.innerHTML = rezultate.length
+        ? rezultate.map((c) => randCandidatFurnizor(c, index)).join('')
+        : '<p style="font-size:12px;color:var(--sters);margin:8px 0">Niciun rezultat.</p>';
+    } catch (e) { container.innerHTML = `<p style="font-size:12px;color:var(--nu)">${esc(e.message)}</p>`; }
+  };
+
+  window.__aplicaLaCod = async (index, colectie, cod) => {
+    const p = preturiFurnizori[index];
+    if (!p) return;
+    try {
+      await api('/api/preturi-castigatoare/aplica', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ colectie, cod, pret: p.pret, moneda: p.moneda, firma: p.firma }),
+      });
+      alert(`Preț aplicat la ${colectie} / ${cod}.`);
+      paginaSetari();
+    } catch (e) { alert(e.message); }
+  };
 
   if (ADMIN_TAB !== 'modele') return;
 
