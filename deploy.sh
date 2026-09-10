@@ -29,7 +29,8 @@ else
   echo "3/4  (.env nemodificat — ruleaza './deploy.sh env' daca ai schimbat secrete)"
 fi
 
-echo "4/4  Repornesc serviciul..."
-ssh -i "$KEY" "$VPS" "systemctl restart $SERV && sleep 2 && systemctl is-active $SERV"
+echo "4/4  Repornesc serviciile..."
+ssh -i "$KEY" "$VPS" "systemctl restart $SERV devize-auto-panou && sleep 2 \
+  && systemctl is-active $SERV && systemctl is-active devize-auto-panou"
 
-echo "✅ Gata — https://devize.buildandfix.ai"
+echo "✅ Gata — https://devize.buildandfix.ai (panoul intern: tunel SSH pe portul 7778)"
