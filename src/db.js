@@ -442,6 +442,18 @@ const istoricPreturiPentruArticol = (colectie, cod, limita = 50) => db.prepare(
   'SELECT * FROM istoric_preturi WHERE colectie = ? AND cod = ? ORDER BY creat_la DESC LIMIT ?',
 ).all(colectie, cod, limita);
 
+/** Ca adaugaIstoricPret, dar nu arunca niciodata -- de folosit chiar langa
+ * salveazaPretCurent/salveazaPretCurentFirma, ca o eroare la LOGUL de
+ * proveniata (bug, camp lipsa) sa nu strice niciodata SALVAREA reala a
+ * pretului, care s-a facut deja. Doar un warning in consola. */
+function adaugaIstoricPretSigur(campuri) {
+  try {
+    adaugaIstoricPret(campuri);
+  } catch (e) {
+    console.warn(`[istoric_preturi] nu am putut inregistra provenienta (pretul curent tot s-a salvat): ${e.message}`);
+  }
+}
+
 // ─── Resurse agregate ─────────────────────────────────────────────────────────
 
 const stergeResurseAgregate = (proiectId) => db.prepare('DELETE FROM resurse_agregate WHERE proiect_id = ?').run(proiectId);
@@ -599,7 +611,7 @@ module.exports = {
   insereazaLiniiAntemasuratoare, liniiPeProiect, liniiCuRezolutiiPeProiect,
   salveazaRezolutie, confirmaRezolutie,
   salveazaPretCurent, pretCurent,
-  adaugaIstoricPret, istoricPreturiPentruArticol, TIPURI_SURSA_PRET,
+  adaugaIstoricPret, adaugaIstoricPretSigur, istoricPreturiPentruArticol, TIPURI_SURSA_PRET,
   stergeResurseAgregate, adaugaResursaAgregata, resurseAgregatePeProiect,
   salveazaVerificariCompletitudine, verificariCompletitudinePeProiect,
   creeazaProiectPentruFirma, proiectePeFirma, proiectDupaIdSiFirma,

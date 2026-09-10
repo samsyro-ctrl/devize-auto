@@ -42,9 +42,12 @@ function exportaPreturiExcel(proiectId, cale) {
  * Reincarca un Excel de preturi (exportat si editat manual). Doar randurile
  * cu "Pret unitar" completat si numeric se salveaza -- restul raman goale
  * pentru urmatoarea trecere, fara sa strice ce era deja in cache.
+ * @param {number} [proiectId] proiectul din care a plecat exportul -- doar
+ *   pentru istoricul de proveniata (istoric_preturi), nu schimba ce se
+ *   salveaza in cache-ul global (preturi_curente, neschimbat pe proiect).
  * @returns {{salvate:number, ignorate:number}}
  */
-function incarcaPreturiExcel(cale) {
+function incarcaPreturiExcel(cale, proiectId) {
   const XLSX = require('xlsx');
   const carte = XLSX.readFile(cale);
   const foaie = carte.Sheets[carte.SheetNames[0]];
@@ -58,6 +61,12 @@ function incarcaPreturiExcel(cale) {
     const pret = Number(r['Pret unitar']);
     if (!colectie || !cod || !Number.isFinite(pret) || pret <= 0) { ignorate++; continue; }
     db.salveazaPretCurent(colectie, cod, pret);
+    // Provenienta (Faza B, DEVIZE_ARCHITECTURE.md §9) -- introducere manuala
+    // prin Excel, de-aia MARKET_ESTIMATE (nu e o oferta de furnizor formala).
+    db.adaugaIstoricPretSigur({
+      colectie, cod, pret, tipSursa: 'MARKET_ESTIMATE', proiectId: proiectId || null,
+      documentSursa: 'Excel preturi (reimportat)', introdusDe: 'Cristian Samson (panou intern)',
+    });
     salvate++;
   }
   return { salvate, ignorate };

@@ -306,6 +306,11 @@ const server = http.createServer(async (req, res) => {
       const corp = await citesteCorp(req);
       if (!corp.colectie || !corp.cod || !Number.isFinite(Number(corp.pret))) return json(res, { eroare: 'colectie, cod si pret sunt obligatorii' }, 400);
       db.salveazaPretCurentFirma(firmaId, corp.colectie, corp.cod, Number(corp.pret));
+      // Provenienta (Faza B) -- editare manuala directa in pagina de Preturi.
+      db.adaugaIstoricPretSigur({
+        colectie: corp.colectie, cod: corp.cod, pret: Number(corp.pret), tipSursa: 'MARKET_ESTIMATE',
+        proiectId: corp.proiectId ? Number(corp.proiectId) : null, firmaId, introdusDe: sesiune?.nume || 'firma necunoscuta',
+      });
       return json(res, { ok: true });
     }
 

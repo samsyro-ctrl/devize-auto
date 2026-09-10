@@ -433,7 +433,7 @@ async function paginaPreturi(proiectId) {
     const pret = Number(String(val).replace(',', '.'));
     if (!Number.isFinite(pret) || pret <= 0) return;
     try {
-      await api('/api/pret', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ colectie, cod, pret }) });
+      await api('/api/pret', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ colectie, cod, pret, proiectId }) });
       const r = resurse.find((x) => x.colectie === colectie && x.cod === cod);
       if (r) r.pret_curent = pret;
       randare();

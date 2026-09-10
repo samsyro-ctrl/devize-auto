@@ -53,7 +53,15 @@ function main() {
   if (SCRIE) {
     const db = require('../src/db');
     db.deschide(path.join(__dirname, '..', 'output'));
-    for (const r of randuri) db.salveazaPretCurent('proprii', r.cod, r.pret);
+    for (const r of randuri) {
+      db.salveazaPretCurent('proprii', r.cod, r.pret);
+      // Provenienta (Faza B) -- pretul vine din preturile proprii negociate
+      // de-a lungul timpului (recrutare-bot), nu dintr-o oferta noua.
+      db.adaugaIstoricPretSigur({
+        colectie: 'proprii', cod: r.cod, pret: r.pret, tipSursa: 'NEGOTIATED_PRICE',
+        documentSursa: 'recrutare-bot (nomenclator, colectia "proprii")', introdusDe: 'sincronizare automata (systemd timer)',
+      });
+    }
     console.log(`\nScrise/actualizate ${randuri.length} preturi in cache-ul local (preturi_curente).`);
   } else {
     console.log('\nNimic scris -- ruleaza din nou cu --scrie ca sa chiar salveze.');
