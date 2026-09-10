@@ -638,10 +638,15 @@ async function paginaAdministrare() {
     return catalog.filter((m) => m.id.toLowerCase().includes(t) || (m.nume || '').toLowerCase().includes(t)).slice(0, 200);
   }
 
-  function arataLista(input) {
+  // La FOCUS (primul click, camp inca precompletat cu modelul curent), lista
+  // trebuie sa arate CATALOGUL INTREG, nu una filtrata dupa valoarea deja
+  // scrisa -- altfel omul vede doar 1-2 potriviri intamplatoare cu propriul
+  // model curent si crede ca dropdown-ul "nu arata toate modelele". La SCRIS
+  // (oninput), filtrarea normala ramane.
+  function arataLista(input, ignoraValoarea) {
     const rol = input.dataset.rol;
     const lista = document.querySelector(`.model-lista[data-rol="${rol}"]`);
-    const rezultate = filtreazaModele(input.value);
+    const rezultate = ignoraValoarea ? catalog.slice(0, 60) : filtreazaModele(input.value);
     lista.innerHTML = rezultate.length
       ? rezultate.map((m) => `<div class="model-optiune" data-id="${esc(m.id)}">
           <span class="m-id">${esc(m.id)}</span><span class="m-nume">${esc(m.nume)}${m.structurat ? '' : ' ⚠ fără JSON strict'}</span>
@@ -658,8 +663,8 @@ async function paginaAdministrare() {
   }
 
   document.querySelectorAll('.model-combo input').forEach((input) => {
-    input.oninput = () => arataLista(input);
-    input.onfocus = () => arataLista(input);
+    input.oninput = () => arataLista(input, false);
+    input.onfocus = () => arataLista(input, true);
   });
   document.addEventListener('mousedown', (e) => {
     if (e.target.closest('.model-combo')) return;
