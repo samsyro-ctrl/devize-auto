@@ -59,11 +59,18 @@ function scrie({
   });
 }
 
-/** Cauta experiente existente. Intoarce [] (nu null) daca nu gaseste/esueaza -- apelantul poate itera direct. */
+/**
+ * Cauta experiente existente. Intoarce [] (nu null) daca nu gaseste/esueaza --
+ * apelantul poate itera direct.
+ * @param {string} [domeniu] implicit 'devize' (al nostru) -- citirea intre
+ *   domenii e libera pe Core API (vezi buildandfix-core/src/server.js,
+ *   GET /api/experiente), de-aia poate fi suprascris explicit cand vrem
+ *   cunostinte dintr-un alt domeniu (ex. 'cautare', pentru furnizor_castigator).
+ */
 async function cauta({
-  tip, cheie, entitate, limita,
+  tip, cheie, entitate, limita, domeniu,
 }) {
-  const params = new URLSearchParams({ domeniu: 'devize' });
+  const params = new URLSearchParams({ domeniu: domeniu || 'devize' });
   if (tip) params.set('tip', tip);
   if (cheie) params.set('cheie', cheie);
   if (entitate) params.set('entitate', entitate);

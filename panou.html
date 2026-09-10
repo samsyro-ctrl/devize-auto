@@ -515,15 +515,26 @@ async function paginaDeviz(proiectId) {
     </main>`);
 }
 
-// ─── Pagina: setari (model per task) ────────────────────────────────────────
+// ─── Pagina: setari (model per task + preturi furnizori castigatoare) ──────
+// Doua tab-uri, ca la Administrare din public.html: "Modele AI" (continutul
+// de baza, neschimbat) si "Prețuri furnizori" (doar referinta, citita din
+// BFLA -- vezi discutia despre lipsa legaturii automate la colectie/cod).
+let ADMIN_TAB = 'modele';
 async function paginaSetari() {
   app(antet('setari') + `<main><div class="incarcare">Se încarcă...</div></main>`);
-  let roluri, catalog;
-  try {
-    const [rSetari, rCatalog] = await Promise.all([api('/api/setari-model'), api('/api/modele-openrouter')]);
-    roluri = rSetari.roluri || [];
-    catalog = rCatalog.modele || [];
-  } catch (e) { return eroareGenerala(e); }
+  let roluri = [], catalog = [], preturiFurnizori = [];
+  if (ADMIN_TAB === 'modele') {
+    try {
+      const [rSetari, rCatalog] = await Promise.all([api('/api/setari-model'), api('/api/modele-openrouter')]);
+      roluri = rSetari.roluri || [];
+      catalog = rCatalog.modele || [];
+    } catch (e) { return eroareGenerala(e); }
+  } else {
+    try {
+      const r = await api('/api/preturi-castigatoare');
+      preturiFurnizori = r.preturi || [];
+    } catch (e) { return eroareGenerala(e); }
+  }
 
   function randRol(rol) {
     return `<div class="linie-card">
@@ -542,12 +553,40 @@ async function paginaSetari() {
     </div>`;
   }
 
+  function randPretFurnizor(p) {
+    return `<div class="linie-card">
+      <p class="linie-denumire">${esc(p.firma)}</p>
+      <div class="linie-meta">
+        <span>${p.pret != null ? banii(p.pret) + ' ' + esc(p.moneda) : '—'}${p.durata ? ' · ' + esc(p.durata) : ''}</span>
+      </div>
+      <p class="sub" style="margin:4px 0 0">${p.creatLa ? new Date(p.creatLa).toLocaleDateString('ro-RO') : ''}${p.validatDe ? ' · ales de ' + esc(p.validatDe) : ''}</p>
+    </div>`;
+  }
+
+  const tabbar = `<div class="cauta-w">
+    <button class="filtru ${ADMIN_TAB==='modele'?'activ':''}" onclick="window.__setAdminTab('modele')">Modele AI</button>
+    <button class="filtru ${ADMIN_TAB==='preturi-furnizori'?'activ':''}" onclick="window.__setAdminTab('preturi-furnizori')">Prețuri furnizori</button>
+  </div>`;
+
+  const continutModele = `
+    <p class="sub">Alege ce model OpenRouter rulează fiecare task -- scrie ca să filtrezi, dintre toate cele ${catalog.length} disponibile. Fără suprascriere, rămâne implicitul din .env. Se aplică la următorul apel, fără restart.</p>
+    ${roluri.map(randRol).join('')}`;
+
+  const continutPreturiFurnizori = preturiFurnizori.length
+    ? `<p class="sub">Prețuri câștigătoare din căutările recente de furnizori (recrutare-bot) -- doar referință, nu sunt legate automat de un material anume din devize. ${preturiFurnizori.length} intrări.</p>
+       ${preturiFurnizori.map(randPretFurnizor).join('')}`
+    : `<p class="sub">Nicio ofertă câștigătoare înregistrată încă în recrutare-bot.</p>`;
+
   app(antet('setari') + `
     <main style="max-width:720px">
-      <h1>Modele AI</h1>
-      <p class="sub">Alege ce model OpenRouter rulează fiecare task -- scrie ca să filtrezi, dintre toate cele ${catalog.length} disponibile. Fără suprascriere, rămâne implicitul din .env. Se aplică la următorul apel, fără restart.</p>
-      ${roluri.map(randRol).join('')}
+      <h1>Administrare</h1>
+      ${tabbar}
+      ${ADMIN_TAB === 'modele' ? continutModele : continutPreturiFurnizori}
     </main>`);
+
+  window.__setAdminTab = (tab) => { ADMIN_TAB = tab; paginaSetari(); };
+
+  if (ADMIN_TAB !== 'modele') return;
 
   // ─── Combo box cautabil (vezi CSS .model-combo) ───────────────────────────
   // Motiv: <datalist> nativ arata doar un numar limitat de sugestii cand

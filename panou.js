@@ -319,6 +319,27 @@ const server = http.createServer(async (req, res) => {
       return json(res, { modele: cacheModeleOR.lista });
     }
 
+    // Preturi castigatoare recente din recrutare-bot (domeniul 'cautare' in
+    // BFLA, scrise la /alege-castigator) -- DOAR referinta, fara legatura
+    // automata la un colectie/cod anume (cautareId nu se poate lega inapoi
+    // de un proiect/resursa din devize-auto, vezi discutia din sesiune).
+    // Intern (panou.js), nu si pe site-ul public -- aceleasi date "ale
+    // noastre" ca preturile din colectia "proprii", nu pentru firme externe.
+    if (p === '/api/preturi-castigatoare' && req.method === 'GET') {
+      const experiente = bfla.ACTIV
+        ? await bfla.cauta({ domeniu: 'cautare', tip: 'furnizor_castigator', limita: 50 })
+        : [];
+      const preturi = experiente.map((e) => ({
+        firma: e.cheie,
+        pret: e.continut?.pret ?? null,
+        moneda: e.continut?.moneda || 'RON',
+        durata: e.continut?.durata || null,
+        validatDe: e.validatDe || null,
+        creatLa: e.creatLa || null,
+      }));
+      return json(res, { preturi });
+    }
+
     res.writeHead(404); res.end('Not found');
   } catch (e) {
     console.error(e);
