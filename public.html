@@ -100,6 +100,22 @@
   .cauta-w { display:flex; gap:8px; margin:10px 0 12px; }
   .cauta-w input { flex:1; padding:10px 13px; border:1px solid var(--linie); background:var(--glass); border-radius:10px; font-size:13.5px; font-family:inherit; color:var(--text); }
 
+  /* Combo box cautabil pentru alegerea modelului -- INLOCUIESTE <input list>
+     + <datalist> nativ. Motivul: <datalist> arata doar un numar limitat de
+     sugestii cand campul e gol/necompletat (comportament impus de browser,
+     nu de noi) -- cu 400+ modele OpenRouter, omul vedea doar o mana de
+     optiuni, niciodata lista intreaga, oricat de multe intrau in DOM.
+     Raportat live, verificat: DATELE erau complete (436 modele, confirmate
+     si direct de pe server), doar elementul nativ le arata trunchiat. */
+  .model-combo { position:relative; flex:1; min-width:220px; }
+  .model-lista { position:absolute; z-index:20; top:calc(100% + 4px); left:0; right:0; max-height:280px; overflow-y:auto;
+    background:var(--warm-1000); border:1px solid var(--linie); border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.5); }
+  .model-optiune { padding:9px 13px; font-size:13px; cursor:pointer; display:flex; justify-content:space-between; gap:10px; align-items:baseline; }
+  .model-optiune:hover, .model-optiune.activa { background:var(--glass-tare); }
+  .model-optiune .m-id { font-family:var(--font-mono); font-size:12px; color:var(--text); }
+  .model-optiune .m-nume { font-size:11.5px; color:var(--sters); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .model-lista .gol { padding:12px 13px; font-size:12.5px; color:var(--sters); text-align:center; }
+
   .lateral-titlu { font-size:12px; font-weight:700; color:var(--sters); text-transform:uppercase; letter-spacing:.04em; margin:22px 0 10px; }
   .rezolvat { display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:10px; opacity:.75; font-size:12.5px; }
   .rezolvat b { font-weight:600; color:var(--text); } .rezolvat span { color:var(--sters); font-family:var(--font-mono); font-size:10.5px; margin-left:6px; }
@@ -594,7 +610,10 @@ async function paginaAdministrare() {
         <span>${rol.suprascris ? 'Suprascris' : 'Implicit din .env'} — <b>${esc(rol.modelActiv)}</b></span>
       </div>
       <div class="cauta-w">
-        <input class="camp" style="margin-bottom:0" list="lista-modele-or" value="${esc(rol.modelActiv)}" data-rol="${esc(rol.rol)}">
+        <div class="model-combo">
+          <input class="camp" style="margin-bottom:0" autocomplete="off" value="${esc(rol.modelActiv)}" data-rol="${esc(rol.rol)}">
+          <div class="model-lista" data-rol="${esc(rol.rol)}" hidden></div>
+        </div>
         <button class="btn primar btn-salveaza" data-rol="${esc(rol.rol)}">Salvează</button>
         ${rol.suprascris ? `<button class="btn btn-implicit" data-rol="${esc(rol.rol)}">Revino la implicit</button>` : ''}
       </div>
@@ -604,12 +623,48 @@ async function paginaAdministrare() {
   app(antet('administrare') + `
     <main style="max-width:720px">
       <h1>Modele AI</h1>
-      <p class="sub">Vizibil strict pentru firma-proprietar. Ce model OpenRouter rulează fiecare task — se aplică la următorul apel, fără redeploy.</p>
+      <p class="sub">Vizibil strict pentru firma-proprietar. Scrie ca să filtrezi, dintre toate cele ${catalog.length} disponibile. Se aplică la următorul apel, fără redeploy.</p>
       ${roluri.map(randRol).join('')}
-      <datalist id="lista-modele-or">
-        ${catalog.map((m) => `<option value="${esc(m.id)}">${esc(m.nume)}${m.structurat ? '' : ' (fără output JSON strict)'}</option>`).join('')}
-      </datalist>
     </main>`);
+
+  // ─── Combo box cautabil (vezi CSS .model-combo) ───────────────────────────
+  // Motiv: <datalist> nativ arata doar un numar limitat de sugestii cand
+  // campul e gol -- verificat live, 436 modele in DOM, doar o mana vizibile.
+  // Filtrare pe id SAU nume, primele 60 fara text (destul cat sa se vada ce
+  // exista, fara sa randeze toate 436 odata), pana la 200 cu text scris.
+  function filtreazaModele(text) {
+    const t = text.trim().toLowerCase();
+    if (!t) return catalog.slice(0, 60);
+    return catalog.filter((m) => m.id.toLowerCase().includes(t) || (m.nume || '').toLowerCase().includes(t)).slice(0, 200);
+  }
+
+  function arataLista(input) {
+    const rol = input.dataset.rol;
+    const lista = document.querySelector(`.model-lista[data-rol="${rol}"]`);
+    const rezultate = filtreazaModele(input.value);
+    lista.innerHTML = rezultate.length
+      ? rezultate.map((m) => `<div class="model-optiune" data-id="${esc(m.id)}">
+          <span class="m-id">${esc(m.id)}</span><span class="m-nume">${esc(m.nume)}${m.structurat ? '' : ' ⚠ fără JSON strict'}</span>
+        </div>`).join('')
+      : '<div class="gol">Niciun model potrivit.</div>';
+    lista.hidden = false;
+    lista.querySelectorAll('.model-optiune').forEach((opt) => {
+      opt.onmousedown = (e) => {
+        e.preventDefault();
+        input.value = opt.dataset.id;
+        lista.hidden = true;
+      };
+    });
+  }
+
+  document.querySelectorAll('.model-combo input').forEach((input) => {
+    input.oninput = () => arataLista(input);
+    input.onfocus = () => arataLista(input);
+  });
+  document.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.model-combo')) return;
+    document.querySelectorAll('.model-lista').forEach((l) => { l.hidden = true; });
+  });
 
   document.querySelectorAll('.btn-salveaza').forEach((btn) => {
     btn.onclick = async () => {
