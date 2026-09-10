@@ -27,6 +27,20 @@ const PORT = parseInt(process.env.PUBLIC_PORT, 10) || 8090;
 const RADACINA = __dirname;
 const OUTPUT_DIR = path.join(RADACINA, 'output');
 
+// Firma-proprietar (RED POWER CONS -- singura cu acces la Administrare, vezi
+// mai jos) -- acelasi tipar ca PROPRIETAR din recrutare-bot/src/server.js,
+// un email comparat, nu un rol nou in baza. Nicio alta firma de pe platforma
+// publica, oricat de veche, nu vede vreodata pagina asta.
+const EMAIL_PROPRIETAR = (process.env.EMAIL_PROPRIETAR_DEVIZE || '').toLowerCase();
+let cacheModeleOR = { la: 0, lista: [] };
+const ETICHETE_ROL_MODEL = {
+  MODEL_EXTRAGERE: 'Extragere linii din antemăsurătoare',
+  MODEL_SCOP: 'Extragere scop proiect (produs, activități)',
+  MODEL_COMPLETITUDINE: 'Verificare completitudine deviz ↔ documentație',
+  MODEL_DESCOMPUNERE: 'Devize predefinite — descompune activitate în poziții',
+  MODEL_CANTITATI: 'Devize predefinite — extrage cantități din documentație',
+};
+
 db.deschide(OUTPUT_DIR, 'public.db');
 
 function caleProiect(proiectId, ...parti) {
@@ -107,7 +121,10 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/stare-acces') {
       return json(res, {
         autentificat: !!sesiune,
-        firma: sesiune ? { nume: sesiune.nume, email: sesiune.email, parolaTemporara: sesiune.parolaTemporara } : null,
+        firma: sesiune ? {
+          nume: sesiune.nume, email: sesiune.email, parolaTemporara: sesiune.parolaTemporara,
+          proprietar: !!EMAIL_PROPRIETAR && (sesiune.email || '').toLowerCase() === EMAIL_PROPRIETAR,
+        } : null,
       });
     }
 
@@ -271,6 +288,60 @@ const server = http.createServer(async (req, res) => {
         'Content-Disposition': `attachment; filename="${path.basename(cale)}"`,
       });
       return fs.createReadStream(cale).pipe(res);
+    }
+
+    // ─── Administrare (STRICT firma-proprietar, vezi EMAIL_PROPRIETAR) ───
+    // Reutilizeaza NESCHIMBAT db.setariModel/seteazaModelRol/ROLURI_MODEL --
+    // tabelul setari_model exista deja in public.db (schema comuna cu
+    // devize.db), doar rutele si pagina sunt noi aici.
+    const ePropietar = !!sesiune && !!EMAIL_PROPRIETAR && (sesiune.email || '').toLowerCase() === EMAIL_PROPRIETAR;
+
+    if (p === '/api/setari-model' && req.method === 'GET') {
+      if (!ePropietar) return json(res, { eroare: 'Nu ai acces aici.' }, 403);
+      const suprascrieri = db.setariModel();
+      const roluri = db.ROLURI_MODEL.map((rol) => {
+        const implicitEnv = process.env[rol] || 'claude-sonnet-5';
+        const suprascris = suprascrieri[rol] || null;
+        return {
+          rol, eticheta: ETICHETE_ROL_MODEL[rol] || rol,
+          implicitEnv, modelActiv: suprascris || implicitEnv, suprascris: !!suprascris,
+        };
+      });
+      return json(res, { roluri });
+    }
+
+    if (p === '/api/setari-model' && req.method === 'POST') {
+      if (!ePropietar) return json(res, { eroare: 'Nu ai acces aici.' }, 403);
+      const corp = await citesteCorp(req);
+      if (!db.ROLURI_MODEL.includes(corp.rol)) return json(res, { eroare: 'rol necunoscut' }, 400);
+      try {
+        db.seteazaModelRol(corp.rol, corp.modelSlug);
+      } catch (e) {
+        return json(res, { eroare: e.message }, 400);
+      }
+      return json(res, { ok: true });
+    }
+
+    if (p === '/api/modele-openrouter' && req.method === 'GET') {
+      if (!ePropietar) return json(res, { eroare: 'Nu ai acces aici.' }, 403);
+      const ORA = 60 * 60 * 1000;
+      if (Date.now() - cacheModeleOR.la > ORA) {
+        try {
+          const r = await fetch('https://openrouter.ai/api/v1/models');
+          const j = await r.json();
+          cacheModeleOR = {
+            la: Date.now(),
+            lista: (j.data || []).map((m) => ({
+              id: m.id, nume: m.name,
+              structurat: (m.supported_parameters || []).includes('structured_outputs'),
+            })),
+          };
+        } catch (e) {
+          console.warn(`   ⚠️  catalog OpenRouter indisponibil: ${e.message}`);
+          if (!cacheModeleOR.lista.length) return json(res, { eroare: 'Catalogul de modele e indisponibil chiar acum.' }, 502);
+        }
+      }
+      return json(res, { modele: cacheModeleOR.lista });
     }
 
     res.writeHead(404); res.end('Not found');
