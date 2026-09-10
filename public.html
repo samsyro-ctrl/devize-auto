@@ -536,7 +536,10 @@ async function paginaPreturi(proiectId) {
         </table></div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:18px">
           <div style="font-size:13px;color:${faraPret?'var(--poate)':'var(--sters)'}">${faraPret ? `${faraPret} resurse fără preț — devizul nu se poate genera până le completezi` : 'Toate resursele au preț.'}</div>
-          <button class="btn primar" onclick="navigheaza('/proiect/${proiectId}/deviz')">Continuă la deviz ${ic('<path d="M5 12h14M13 6l6 6-6 6"/>')}</button>
+          <div style="display:flex;gap:10px">
+            <button class="btn" id="btn-rfq" onclick="window.__trimiteRfq()">Trimite necesarul spre ofertare (RFQ)</button>
+            <button class="btn primar" onclick="navigheaza('/proiect/${proiectId}/deviz')">Continuă la deviz ${ic('<path d="M5 12h14M13 6l6 6-6 6"/>')}</button>
+          </div>
         </div>
       </main>`);
   }
@@ -551,6 +554,19 @@ async function paginaPreturi(proiectId) {
       if (r) r.pret_curent = pret;
       randare();
     } catch (e) { alert(e.message); }
+  };
+  // RFQ real, prin Core API -> recrutare-bot (vezi src/rfq.js) -- fire-and-forget
+  // pe partea de recrutare-bot (raspunde imediat, rezultatul apare acolo, in
+  // Administrare > Istoric, dupa 2-4 minute). Nu e fail-open: o eroare aici
+  // TREBUIE sa ajunga la om, altfel ar crede ca s-a trimis cand nu s-a trimis.
+  window.__trimiteRfq = async () => {
+    const buton = document.getElementById('btn-rfq');
+    buton.disabled = true; buton.textContent = 'Trimit...';
+    try {
+      const r = await api(`/api/proiecte/${proiectId}/rfq`, { method: 'POST' });
+      alert(r.mesaj || 'Trimis.');
+    } catch (e) { alert('N-am putut trimite: ' + e.message); }
+    finally { buton.disabled = false; buton.textContent = 'Trimite necesarul spre ofertare (RFQ)'; }
   };
 
   randare();

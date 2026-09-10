@@ -22,6 +22,7 @@ const descompunere = require('./src/descompunere');
 const preturi = require('./src/preturi');
 const deviz = require('./src/deviz');
 const bfla = require('./src/bfla');
+const rfq = require('./src/rfq');
 const { slug } = require('./src/util');
 
 const PORT = parseInt(process.env.PANOU_PORT, 10) || 7778;
@@ -225,6 +226,19 @@ const server = http.createServer(async (req, res) => {
         proiectId: corp.proiectId ? Number(corp.proiectId) : null, introdusDe: 'Cristian Samson (panou intern)',
       });
       return json(res, { ok: true });
+    }
+
+    // ─── RFQ (trimite necesarul de resurse spre recrutare-bot, prin Core API) ───
+    const mRfq = p.match(/^\/api\/proiecte\/(\d+)\/rfq$/);
+    if (mRfq && req.method === 'POST') {
+      const proiectId = Number(mRfq[1]);
+      const proiect = db.proiectDupaId(proiectId);
+      if (!proiect) return json(res, { eroare: 'proiect inexistent' }, 404);
+      try {
+        const resurse = preturi.listaResursePentruPreturi(proiectId);
+        const raspuns = await rfq.trimiteRfq(proiect, resurse);
+        return json(res, raspuns);
+      } catch (e) { return json(res, { eroare: e.message }, 502); }
     }
 
     // ─── Deviz final ───

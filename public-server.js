@@ -21,6 +21,7 @@ const matching = require('./src/matching');
 const descompunere = require('./src/descompunere');
 const deviz = require('./src/deviz');
 const bfla = require('./src/bfla');
+const rfq = require('./src/rfq');
 const { slug } = require('./src/util');
 const firmePublic = require('./src/firmePublic');
 
@@ -312,6 +313,19 @@ const server = http.createServer(async (req, res) => {
         proiectId: corp.proiectId ? Number(corp.proiectId) : null, firmaId, introdusDe: sesiune?.nume || 'firma necunoscuta',
       });
       return json(res, { ok: true });
+    }
+
+    // ─── RFQ (trimite necesarul de resurse spre recrutare-bot, prin Core API) ───
+    const mRfq = p.match(/^\/api\/proiecte\/(\d+)\/rfq$/);
+    if (mRfq && req.method === 'POST') {
+      const proiectId = Number(mRfq[1]);
+      const proiect = db.proiectDupaIdSiFirma(proiectId, firmaId);
+      if (!proiect) return json(res, { eroare: 'proiect inexistent' }, 404);
+      try {
+        const resurse = db.resurseAgregatePeProiectFirma(proiectId, firmaId);
+        const raspuns = await rfq.trimiteRfq(proiect, resurse);
+        return json(res, raspuns);
+      } catch (e) { return json(res, { eroare: e.message }, 502); }
     }
 
     const mDeviz = p.match(/^\/api\/proiecte\/(\d+)\/deviz$/);
