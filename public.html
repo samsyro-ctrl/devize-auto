@@ -44,6 +44,11 @@
   .antet { max-width:1400px; margin:0 auto; padding:20px 22px 0; display:flex; justify-content:space-between; align-items:center; gap:16px; }
   .marca { display:flex; align-items:center; gap:10px; font-family:var(--font-display); font-weight:800; font-size:19px; cursor:pointer; }
   .marca .accent { color:var(--accent); }
+  /* Sigla "Build&Fix" uniformă în cele 3 aplicații (cautare/devize/licitatii)
+     -- numele subdomeniului dedesubt, aceeași structură peste tot. */
+  .marca-baf { display:flex; flex-direction:column; gap:1px; line-height:1.15; }
+  .marca-baf-sigla { display:block; }
+  .marca-baf-domeniu { display:block; font-family:var(--font-mono); font-size:10px; font-weight:500; color:var(--sters); letter-spacing:.01em; }
   .meniu { max-width:1400px; margin:14px auto 0; padding:0 22px; display:flex; gap:2px; border-bottom:1px solid var(--linie2); align-items:center; }
   .meniu-i { padding:11px 16px; font-size:14px; font-weight:600; color:var(--sters); border-bottom:2px solid transparent; cursor:pointer; display:flex; align-items:center; gap:8px; }
   .meniu-i.activ { color:var(--text); border-color:var(--accent); }
@@ -244,7 +249,7 @@ function antet(tabActiv, proiectId, numeProiect) {
   `;
   return `
     <div class="antet">
-      <div class="marca" onclick="navigheaza('/')">${ic('<path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4"/><path d="M14 3h7v7"/><path d="M10 14 21 3"/>', 24)}devize<span class="accent">-auto</span></div>
+      <div class="marca" onclick="navigheaza('/')"><span class="marca-baf"><span class="marca-baf-sigla">Build<span class="accent">&amp;</span>Fix</span><span class="marca-baf-domeniu">devize.buildandfix.ai</span></span></div>
     </div>
     <div class="meniu">${taburi}</div>`;
 }
@@ -263,7 +268,7 @@ function paginaLogin() {
   app(`
     <div class="login-w">
       <div class="login-card">
-        <div class="login-marca">${ic('<path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4"/><path d="M14 3h7v7"/><path d="M10 14 21 3"/>', 26)}devize<span class="accent">-auto</span></div>
+        <div class="login-marca"><span class="marca-baf" style="align-items:center;text-align:center"><span class="marca-baf-sigla">Build<span class="accent">&amp;</span>Fix</span><span class="marca-baf-domeniu">devize.buildandfix.ai</span></span></div>
         <label>Utilizator</label>
         <input class="camp" id="login-utilizator" type="text" autocomplete="username" onkeydown="if(event.key==='Enter') document.getElementById('login-parola').focus()">
         <label>Parolă</label>
