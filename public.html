@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>devize-auto</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#140c07">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Devize Auto">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Hanken+Grotesk:wght@400;500;600;650;700&family=JetBrains+Mono:wght@500&display=swap">
 <style>
   /* — Sistemul de design Build&Fix, acelasi ca in panou.html (intern) si licitatie-analiza — */
@@ -176,6 +182,25 @@ let STARE_ACCES = null;
 function segmenteRuta() { return (location.hash.replace(/^#\/?/, '') || '').split('/').filter(Boolean); }
 function navigheaza(ruta) { location.hash = ruta; }
 window.addEventListener('hashchange', redeseneaza);
+
+// ─── Instalare ca aplicatie (PWA) ───────────────────────────────────────────
+// Chrome/Edge (desktop + Android) anunta cand aplicatia e instalabila prin
+// acest eveniment -- il prindem devreme (poate veni oricand dupa incarcare,
+// nu neaparat cand omul e pe Administrare) si il pastram pana la click pe
+// buton. Safari (iOS/macOS) nu trimite niciodata evenimentul asta -- acolo
+// butonul arata instructiuni manuale (Distribuie -> Adauga pe ecranul principal).
+let PROMPT_INSTALARE = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  PROMPT_INSTALARE = e;
+});
+window.addEventListener('appinstalled', () => { PROMPT_INSTALARE = null; });
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
+}
+function aplicatiaEInstalata() {
+  return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+}
 
 async function api(cale, optiuni) {
   const r = await fetch(cale, optiuni);
@@ -620,12 +645,50 @@ async function paginaAdministrare() {
     </div>`;
   }
 
+  // ─── Instalare ca aplicatie (PWA) ─────────────────────────────────────────
+  // beforeinstallprompt (Chrome/Edge, desktop+Android) poate sosi oricand dupa
+  // incarcarea paginii -- daca a sosit deja, PROMPT_INSTALARE e populat pana
+  // aici. Safari (iOS/macOS) nu-l trimite niciodata -- acolo aratam
+  // instructiuni manuale in loc de buton nefunctional.
+  const iOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const instalata = aplicatiaEInstalata();
+  const cardInstalare = `<div class="linie-card">
+    <p class="linie-denumire">Instalează aplicația</p>
+    <div class="linie-meta">
+      <span>Pune devize-auto pe ecranul principal (telefon) sau în bara de sarcini (desktop) — se deschide ca aplicație separată, fără bara browserului.</span>
+    </div>
+    ${instalata ? `<p class="sub" style="margin-top:10px">✓ Deja instalată pe acest dispozitiv.</p>` : `
+    <div class="cauta-w">
+      <button class="btn primar" id="btn-instaleaza">Instalează ${ic('<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>')}</button>
+    </div>
+    <p class="sub" id="instalare-instructiuni" style="margin-top:10px"${iOS ? '' : ' hidden'}>
+      ${iOS
+        ? 'Pe iPhone/iPad (Safari): atinge <b>Distribuie</b> (pătratul cu săgeată în sus) → <b>Adaugă pe ecranul principal</b>.'
+        : 'Pe desktop (Chrome/Edge): meniul <b>⋮</b> din browser → <b>Instalează aplicația</b> (sau <b>Creează shortcut</b>, cu „Open as window” bifat).'}
+    </p>`}
+  </div>`;
+
   app(antet('administrare') + `
     <main style="max-width:720px">
-      <h1>Modele AI</h1>
+      <h1>Administrare</h1>
+      ${cardInstalare}
+      <h1 style="margin-top:34px">Modele AI</h1>
       <p class="sub">Vizibil strict pentru firma-proprietar. Scrie ca să filtrezi, dintre toate cele ${catalog.length} disponibile. Se aplică la următorul apel, fără redeploy.</p>
       ${roluri.map(randRol).join('')}
     </main>`);
+
+  const btnInstaleaza = document.getElementById('btn-instaleaza');
+  if (btnInstaleaza) {
+    btnInstaleaza.onclick = async () => {
+      if (PROMPT_INSTALARE) {
+        PROMPT_INSTALARE.prompt();
+        try { await PROMPT_INSTALARE.userChoice; } catch {}
+        PROMPT_INSTALARE = null;
+      } else {
+        document.getElementById('instalare-instructiuni').hidden = false;
+      }
+    };
+  }
 
   // ─── Combo box cautabil (vezi CSS .model-combo) ───────────────────────────
   // Motiv: <datalist> nativ arata doar un numar limitat de sugestii cand

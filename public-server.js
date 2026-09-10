@@ -84,7 +84,10 @@ function serveFisier(res, cale, contentType) {
   // dupa deploy -- fisierul de pe disc era corect, browserul refolosea
   // versiunea veche. Favicon-ul (SVG) ramane cacheabil, neschimbat.
   const headere = { 'Content-Type': contentType };
-  if (contentType.startsWith('text/html')) headere['Cache-Control'] = 'no-store';
+  // no-store si pe sw.js, din acelasi motiv ca HTML-ul: e scriptul care
+  // decide ce vede PWA-ul instalat, un browser care il tine cacheat vechi
+  // ar bloca actualizarile sa ajunga la utilizatorii care au instalat aplicatia.
+  if (contentType.startsWith('text/html') || cale.endsWith('sw.js')) headere['Cache-Control'] = 'no-store';
   res.writeHead(200, headere);
   flux.pipe(res);
 }
@@ -111,6 +114,18 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/favicon.svg') {
       return serveFisier(res, path.join(RADACINA, 'favicon.svg'), 'image/svg+xml');
+    }
+    // Manifest + service worker + iconite -- trebuie servite FARA autentificare,
+    // browserul le cere pe la spate (installability check) chiar si pe pagina
+    // de login, inainte sa existe vreo sesiune.
+    if (p === '/manifest.webmanifest') {
+      return serveFisier(res, path.join(RADACINA, 'manifest.webmanifest'), 'application/manifest+json');
+    }
+    if (p === '/sw.js') {
+      return serveFisier(res, path.join(RADACINA, 'sw.js'), 'text/javascript; charset=utf-8');
+    }
+    if (p === '/icon-192.png' || p === '/icon-512.png') {
+      return serveFisier(res, path.join(RADACINA, p.slice(1)), 'image/png');
     }
 
     const sesiune = firmePublic.dinCerere(req);
