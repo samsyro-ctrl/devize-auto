@@ -40,7 +40,12 @@ const COLECTII = {
   'Indicatoare__ 6. Norme de Munca.bc3': 'norme_munca',
   'Indicatoare__ 7. Colectia Intersoft.bc3': 'intersoft',
   'Indicatoare__ 8. Colectia Plus Intersoft.bc3': 'intersoft_plus',
-  'Indicatoare__10. Norme proprii.bc3': 'proprii',
+  // "proprii" e deliberat exclusa de aici: recrutare-bot e sursa unica de
+  // adevar pentru colectia asta (preturi negociate, actualizate manual acolo,
+  // sincronizate automat in preturi_curente de scripts/sincronizeaza-preturi-
+  // server.js) -- vezi auditul de duplicare BC3, 10.09.2026. O copie statica
+  // aici era cod/date moarte, niciodata citita (vezi src/preturi.js), stearsa
+  // cu scripts/sterge-nomenclator-proprii-mort.js. NU reintroduce intrarea.
 };
 
 async function main() {
