@@ -144,7 +144,13 @@ const server = http.createServer(async (req, res) => {
       }
       if (!r) return json(res, { eroare: 'Utilizator sau parolă greșită' }, 401);
       res.setHeader('Set-Cookie', cookieSesiune(r.token, firmePublic.DURATA_SESIUNE_MS / 1000));
-      return json(res, { ok: true, nume: r.nume, email: r.email, parolaTemporara: r.parolaTemporara });
+      // "proprietar" lipsea aici -- vezi /api/stare-acces mai sus, care il
+      // are. Fara el, un login PROASPAT (nu un reload) nu arata niciodata
+      // "Administrare" pana la un reload complet -- gasit direct, testat.
+      return json(res, {
+        ok: true, nume: r.nume, email: r.email, parolaTemporara: r.parolaTemporara,
+        proprietar: !!EMAIL_PROPRIETAR && (r.email || '').toLowerCase() === EMAIL_PROPRIETAR,
+      });
     }
 
     if (p === '/api/logout' && req.method === 'POST') {

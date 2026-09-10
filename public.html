@@ -260,7 +260,7 @@ function paginaLogin() {
       const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ utilizator, parola }) });
       const corp = await r.json();
       if (!r.ok) { document.getElementById('login-eroare').innerHTML = `<div class="eroare-banda">${esc(corp.eroare)}</div>`; return; }
-      STARE_ACCES = { autentificat: true, firma: { nume: corp.nume, email: corp.email, parolaTemporara: corp.parolaTemporara } };
+      STARE_ACCES = { autentificat: true, firma: { nume: corp.nume, email: corp.email, parolaTemporara: corp.parolaTemporara, proprietar: corp.proprietar } };
       navigheaza(corp.parolaTemporara ? '/schimba-parola' : '/');
     } catch (e) { document.getElementById('login-eroare').innerHTML = `<div class="eroare-banda">${esc(e.message)}</div>`; }
   };
