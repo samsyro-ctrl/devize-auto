@@ -645,34 +645,31 @@ async function paginaAdministrare() {
     </div>`;
   }
 
-  // ─── Instalare ca aplicatie (PWA) ─────────────────────────────────────────
+  // ─── Bara de tab-uri + instalare ca aplicatie (PWA) ───────────────────────
+  // Instalarea nu e un tab de continut (Administrare are un singur tab real
+  // azi, "Modele AI") -- e o actiune, de-aia sta separata, impinsa la capatul
+  // din dreapta al barei (margin-left:auto), la fel ca in licitatie-analiza.
   // beforeinstallprompt (Chrome/Edge, desktop+Android) poate sosi oricand dupa
   // incarcarea paginii -- daca a sosit deja, PROMPT_INSTALARE e populat pana
   // aici. Safari (iOS/macOS) nu-l trimite niciodata -- acolo aratam
-  // instructiuni manuale in loc de buton nefunctional.
+  // instructiuni manuale in loc de buton nefunctional. Daca aplicatia e deja
+  // instalata, pilula nici nu apare -- nimic de facut acolo.
   const iOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const instalata = aplicatiaEInstalata();
-  const cardInstalare = `<div class="linie-card">
-    <p class="linie-denumire">Instalează aplicația</p>
-    <div class="linie-meta">
-      <span>Pune devize-auto pe ecranul principal (telefon) sau în bara de sarcini (desktop) — se deschide ca aplicație separată, fără bara browserului.</span>
-    </div>
-    ${instalata ? `<p class="sub" style="margin-top:10px">✓ Deja instalată pe acest dispozitiv.</p>` : `
-    <div class="cauta-w">
-      <button class="btn primar" id="btn-instaleaza">Instalează ${ic('<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>')}</button>
-    </div>
-    <p class="sub" id="instalare-instructiuni" style="margin-top:10px"${iOS ? '' : ' hidden'}>
-      ${iOS
-        ? 'Pe iPhone/iPad (Safari): atinge <b>Distribuie</b> (pătratul cu săgeată în sus) → <b>Adaugă pe ecranul principal</b>.'
-        : 'Pe desktop (Chrome/Edge): meniul <b>⋮</b> din browser → <b>Instalează aplicația</b> (sau <b>Creează shortcut</b>, cu „Open as window” bifat).'}
-    </p>`}
-  </div>`;
+  const tabbar = `<div class="cauta-w">
+    <div class="filtru activ">Modele AI</div>
+    ${instalata ? '' : `<button class="filtru" id="btn-instaleaza" style="margin-left:auto;border:none">Instalare</button>`}
+  </div>
+  ${instalata ? '' : `<p class="sub" id="instalare-instructiuni" style="margin-bottom:16px"${iOS ? '' : ' hidden'}>
+    ${iOS
+      ? 'Pe iPhone/iPad (Safari): atinge <b>Distribuie</b> (pătratul cu săgeată în sus) → <b>Adaugă pe ecranul principal</b>.'
+      : 'Pe desktop (Chrome/Edge): meniul <b>⋮</b> din browser → <b>Instalează aplicația</b> (sau <b>Creează shortcut</b>, cu „Open as window” bifat).'}
+  </p>`}`;
 
   app(antet('administrare') + `
     <main style="max-width:720px">
       <h1>Administrare</h1>
-      ${cardInstalare}
-      <h1 style="margin-top:34px">Modele AI</h1>
+      ${tabbar}
       <p class="sub">Vizibil strict pentru firma-proprietar. Scrie ca să filtrezi, dintre toate cele ${catalog.length} disponibile. Se aplică la următorul apel, fără redeploy.</p>
       ${roluri.map(randRol).join('')}
     </main>`);
