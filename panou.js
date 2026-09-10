@@ -76,7 +76,12 @@ function primesteFisier(req, cale) {
 function serveFisier(res, cale, contentType) {
   const flux = fs.createReadStream(cale);
   flux.on('error', () => { res.writeHead(404); res.end('Nu gasesc fisierul.'); });
-  res.writeHead(200, { 'Content-Type': contentType });
+  // "no-store" DOAR pe HTML (SPA-ul insusi) -- vezi public-server.js pentru
+  // motivul complet (gasit live: un fix deployat corect, dar browserul tot
+  // servea din cache pagina veche).
+  const headere = { 'Content-Type': contentType };
+  if (contentType.startsWith('text/html')) headere['Cache-Control'] = 'no-store';
+  res.writeHead(200, headere);
   flux.pipe(res);
 }
 

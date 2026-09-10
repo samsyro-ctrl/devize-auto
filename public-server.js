@@ -77,7 +77,15 @@ function primesteFisier(req, cale) {
 function serveFisier(res, cale, contentType) {
   const flux = fs.createReadStream(cale);
   flux.on('error', () => { res.writeHead(404); res.end('Nu gasesc fisierul.'); });
-  res.writeHead(200, { 'Content-Type': contentType });
+  // "no-store" DOAR pe HTML (SPA-ul insusi, public.html) -- fara el, un
+  // browser poate servi tacut o copie veche din cache dupa un deploy, omul
+  // vede "nu functioneaza" cand de fapt ruleaza codul de dinainte de fix.
+  // Gasire reala: raportat live ca dropdown-ul cautabil "nu functioneaza"
+  // dupa deploy -- fisierul de pe disc era corect, browserul refolosea
+  // versiunea veche. Favicon-ul (SVG) ramane cacheabil, neschimbat.
+  const headere = { 'Content-Type': contentType };
+  if (contentType.startsWith('text/html')) headere['Cache-Control'] = 'no-store';
+  res.writeHead(200, headere);
   flux.pipe(res);
 }
 
