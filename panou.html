@@ -561,12 +561,17 @@ async function paginaSetari() {
   }
 
   function randPretFurnizor(p, index) {
+    const sugestii = p.sugestii || [];
     return `<div class="linie-card">
       <p class="linie-denumire">${esc(p.firma)}</p>
       <div class="linie-meta">
         <span>${p.pret != null ? banii(p.pret) + ' ' + esc(p.moneda) : '—'}${p.durata ? ' · ' + esc(p.durata) : ''}</span>
       </div>
       <p class="sub" style="margin:4px 0 0">${p.creatLa ? new Date(p.creatLa).toLocaleDateString('ro-RO') : ''}${p.validatDe ? ' · ales de ' + esc(p.validatDe) : ''}</p>
+      ${sugestii.length ? `
+        <p class="sub" style="margin:8px 0 0">Sugestie automată — ${esc(p.firma)} a mai fost legată de codul acesta:</p>
+        ${sugestii.map((c) => randCandidatFurnizor(c, index)).join('')}
+      ` : ''}
       <div class="cauta-w">
         <input placeholder="Caută codul din nomenclator la care se aplică..." onkeydown="if(event.key==='Enter') window.__cautaPentruFurnizor(${index}, this.value)">
         <button class="btn" onclick="window.__cautaPentruFurnizor(${index}, this.previousElementSibling.value)">Aplică la un cod</button>

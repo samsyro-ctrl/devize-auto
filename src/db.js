@@ -442,6 +442,23 @@ const istoricPreturiPentruArticol = (colectie, cod, limita = 50) => db.prepare(
   'SELECT * FROM istoric_preturi WHERE colectie = ? AND cod = ? ORDER BY creat_la DESC LIMIT ?',
 ).all(colectie, cod, limita);
 
+/** Sugestie AUTOMATA (nu auto-aplicare) de cod pentru un furnizor nou-castigator:
+ * daca acelasi furnizor a mai fost legat manual ("Aplica la un cod") de un
+ * colectie/cod inainte (SUPPLIER_QUOTE in istoric_preturi), e un candidat
+ * plauzibil sa fi castigat pentru acelasi material -- dar ramane doar o
+ * sugestie, omul tot confirma explicit inainte sa intre in pret_curent. */
+const sugestiiPentruFurnizor = (furnizor, limita = 3) => {
+  if (!db || !furnizor) return [];
+  return db.prepare(`
+    SELECT DISTINCT ip.colectie, ip.cod, a.descriere, a.unitate
+    FROM istoric_preturi ip
+    LEFT JOIN nomenclator_articole a ON a.colectie = ip.colectie AND a.cod = ip.cod
+    WHERE ip.furnizor = ? AND ip.tip_sursa = 'SUPPLIER_QUOTE'
+    ORDER BY ip.creat_la DESC
+    LIMIT ?
+  `).all(furnizor, limita);
+};
+
 /** Ca adaugaIstoricPret, dar nu arunca niciodata -- de folosit chiar langa
  * salveazaPretCurent/salveazaPretCurentFirma, ca o eroare la LOGUL de
  * proveniata (bug, camp lipsa) sa nu strice niciodata SALVAREA reala a
@@ -611,7 +628,7 @@ module.exports = {
   insereazaLiniiAntemasuratoare, liniiPeProiect, liniiCuRezolutiiPeProiect,
   salveazaRezolutie, confirmaRezolutie,
   salveazaPretCurent, pretCurent,
-  adaugaIstoricPret, adaugaIstoricPretSigur, istoricPreturiPentruArticol, TIPURI_SURSA_PRET,
+  adaugaIstoricPret, adaugaIstoricPretSigur, istoricPreturiPentruArticol, sugestiiPentruFurnizor, TIPURI_SURSA_PRET,
   stergeResurseAgregate, adaugaResursaAgregata, resurseAgregatePeProiect,
   salveazaVerificariCompletitudine, verificariCompletitudinePeProiect,
   creeazaProiectPentruFirma, proiectePeFirma, proiectDupaIdSiFirma,

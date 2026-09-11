@@ -336,6 +336,10 @@ const server = http.createServer(async (req, res) => {
         durata: e.continut?.durata || null,
         validatDe: e.validatDe || null,
         creatLa: e.creatLa || null,
+        // Sugestie AUTOMATA (nu auto-aplicare) -- daca firma a mai fost
+        // legata manual de un cod inainte, il propunem, dar omul tot
+        // confirma explicit prin acelasi /aplica ca la cautarea manuala.
+        sugestii: db.sugestiiPentruFurnizor(e.cheie),
       }));
       return json(res, { preturi });
     }
