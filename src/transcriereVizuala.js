@@ -23,6 +23,54 @@ const { cheama } = require('./ai');
 
 const MODEL = process.env.MODEL_EXTRAGERE || 'claude-sonnet-5';
 
+// Cate pagini se transcriu SIMULTAN -- gasire reala (11.09.2026): secvential,
+// o pagina la rand, dadea ~22s/pagina in medie (masurat pe 10 pagini reale,
+// diverse tipologii) -- un singur document real (SCN1179715, lista de
+// cantitati) are 339 de pagini, ceea ce ar insemna ~2 ore doar pentru EL,
+// secvential. 4 in paralel reduce timpul de zid aproximativ proportional,
+// fara sa fie atat de agresiv incat sa loveasca sigur rate-limit-ul
+// OpenRouter. De ajustat daca se dovedeste prea mic/mare in practica.
+const CONCURENTA_IMPLICITA = 4;
+
+// Reincercare cu backoff exponential -- DOAR pe erori tranzitorii (retea,
+// serviciu aglomerat/rate-limit), niciodata pe erori de continut (raspuns
+// gol, JSON invalid) care tot ar esua identic la reincercare. Necesar mai
+// ales acum, cu procesare in paralel -- concurenta creste sansa reala de a
+// lovi un 429 tranzitoriu fata de rularea strict secventiala de dinainte.
+const PRAG_INCERCARI = 3;
+const INTARZIERE_BAZA_MS = 1200;
+
+const FELURI_REINCERCABILE = new Set(['retea', 'aglomerat']);
+
+/** Asteapta `ms` milisecunde. */
+function asteapta(ms) {
+  return new Promise((rezolva) => { setTimeout(rezolva, ms); });
+}
+
+/**
+ * Ruleaza o lista de taskuri (functii fara argumente, fiecare intoarce o
+ * Promise) cu un NUMAR LIMITAT de rulari simultane -- nu toate deodata (ar
+ * suprasolicita rate-limit-ul), dar nici strict secvential (prea lent pe
+ * documente de sute de pagini). Pastreaza ordinea rezultatelor identica cu
+ * ordinea taskurilor primite, indiferent de ordinea reala de finalizare.
+ * @param {Array<() => Promise<any>>} taskuri
+ * @param {number} concurenta
+ */
+async function ruleazaCuConcurenta(taskuri, concurenta) {
+  const rezultate = new Array(taskuri.length);
+  let urmatorulIndex = 0;
+  async function worker() {
+    while (urmatorulIndex < taskuri.length) {
+      const i = urmatorulIndex;
+      urmatorulIndex += 1;
+      rezultate[i] = await taskuri[i]();
+    }
+  }
+  const numarWorkeri = Math.max(1, Math.min(concurenta, taskuri.length));
+  await Promise.all(Array.from({ length: numarWorkeri }, worker));
+  return rezultate;
+}
+
 const SYSTEM = `Esti asistentul care transcrie FIDEL textul vizibil pe o pagina scanata dintr-un
 document tehnic real (Proiect Tehnic, memoriu, breviar de calcul).
 
@@ -75,35 +123,46 @@ cerintele de mai sus") -- ramane text de transcris, ca oricare altul.`;
 async function transcrieDinImagine(pngBuffer, eticheta, avertismente) {
   const base64 = pngBuffer.toString('base64');
   let resp;
-  try {
-    resp = await cheama({
-      model: MODEL,
-      rol: 'MODEL_EXTRAGERE',
-      max_tokens: 4096,
-      system: SYSTEM,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'text', text: `Transcrie textul de pe aceasta pagina (${eticheta}):` },
-          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64 } },
-        ],
-      }],
-    }, 'transcriereVizuala');
-  } catch (e) {
-    avertismente.push(`${eticheta}: transcriere esuata (${e.mesajOmenesc || e.message}).`);
-    return '';
+  for (let incercare = 1; incercare <= PRAG_INCERCARI; incercare += 1) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      resp = await cheama({
+        model: MODEL,
+        rol: 'MODEL_EXTRAGERE',
+        max_tokens: 4096,
+        system: SYSTEM,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: `Transcrie textul de pe aceasta pagina (${eticheta}):` },
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64 } },
+          ],
+        }],
+      }, 'transcriereVizuala');
+      break;
+    } catch (e) {
+      const reincercabil = FELURI_REINCERCABILE.has(e.felAI) && incercare < PRAG_INCERCARI;
+      if (!reincercabil) {
+        avertismente.push(`${eticheta}: transcriere esuata (${e.mesajOmenesc || e.message}).`);
+        return '';
+      }
+      const intarziere = INTARZIERE_BAZA_MS * 2 ** (incercare - 1);
+      // eslint-disable-next-line no-await-in-loop
+      await asteapta(intarziere);
+    }
   }
   const block = resp.content.find((b) => b.type === 'text');
   return block ? block.text : '';
 }
 
 /**
- * Transcrie tot textul unui PDF scanat, pagina cu pagina. Rezultatul e gandit
- * sa inlocuiasca neschimbat textul pe care l-ar fi dat extract.js daca
- * documentul ar fi avut strat de text nativ.
+ * Transcrie tot textul unui PDF scanat, pagina cu pagina -- pana la
+ * CONCURENTA_IMPLICITA pagini simultan (vezi comentariul de mai sus).
+ * Rezultatul e gandit sa inlocuiasca neschimbat textul pe care l-ar fi dat
+ * extract.js daca documentul ar fi avut strat de text nativ.
  * @param {string} calePdf
  * @param {string[]} [avertismente]
- * @param {{paginaStart?: number, paginaEnd?: number, scale?: number}} [optiuni]
+ * @param {{paginaStart?: number, paginaEnd?: number, scale?: number, concurenta?: number}} [optiuni]
  * @returns {Promise<{text: string, numPagini: number}>}
  */
 async function transcrieDocument(calePdf, avertismente = [], optiuni = {}) {
@@ -111,20 +170,25 @@ async function transcrieDocument(calePdf, avertismente = [], optiuni = {}) {
   const doc = await deschidePdf(calePdf);
   const start = optiuni.paginaStart || 1;
   const capat = Math.min(optiuni.paginaEnd || doc.numPages, doc.numPages);
-  const bucati = [];
-  for (let p = start; p <= capat; p++) {
+  const concurenta = optiuni.concurenta || CONCURENTA_IMPLICITA;
+
+  const numerePagini = [];
+  for (let p = start; p <= capat; p += 1) numerePagini.push(p);
+
+  const taskuri = numerePagini.map((p) => async () => {
     let png;
     try {
-      // eslint-disable-next-line no-await-in-loop
       png = await randeazaPaginaPng(doc, p, optiuni.scale);
     } catch (e) {
       avertismente.push(`Pagina ${p}: randare esuata (${e.message}).`);
-      continue; // eslint-disable-line no-continue
+      return null;
     }
-    // eslint-disable-next-line no-await-in-loop
     const text = await transcrieDinImagine(png, `pagina ${p}`, avertismente);
-    if (text.trim()) bucati.push(`--- pagina ${p} ---\n${text}`);
-  }
+    return text.trim() ? `--- pagina ${p} ---\n${text}` : null;
+  });
+
+  const rezultatePeOrdine = await ruleazaCuConcurenta(taskuri, concurenta);
+  const bucati = rezultatePeOrdine.filter(Boolean);
   return { text: bucati.join('\n\n'), numPagini: doc.numPages };
 }
 
