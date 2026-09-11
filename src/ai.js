@@ -34,16 +34,28 @@ function mapModel(id) {
   return `anthropic/${id}`;
 }
 
-/** cerere (forma Anthropic) -> body OpenRouter (OpenAI-compatible). Fara
- * traducere de blocuri document/imagine -- devize-auto extrage intai textul
- * (extract.js), niciun apel de-aici nu trimite un fisier atasat direct. */
+/** Continutul unui mesaj (forma Anthropic: string sau lista de blocuri) ->
+ * forma OpenRouter/OpenAI. Ramane string simplu cat timp mesajul e doar text
+ * (comportament neschimbat pentru toti apelantii existenti) -- devine lista
+ * de blocuri DOAR cand apare un bloc "image" (Robot B, cantitatiDesenatePT.js
+ * -- o pagina PT randata ca imagine, trimisa unui model cu vedere). */
+function traduContinut(content) {
+  if (typeof content === 'string') return content;
+  const areImagini = content.some((b) => b.type === 'image');
+  if (!areImagini) return content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+  return content.map((b) => {
+    if (b.type === 'text') return { type: 'text', text: b.text };
+    if (b.type === 'image') return { type: 'image_url', image_url: { url: `data:${b.source.media_type};base64,${b.source.data}` } };
+    return { type: 'text', text: '' };
+  });
+}
+
+/** cerere (forma Anthropic) -> body OpenRouter (OpenAI-compatible). */
 function traduCerere(cerere) {
   const mesaje = [];
   if (cerere.system) mesaje.push({ role: 'system', content: cerere.system });
   for (const m of cerere.messages) {
-    const continut = typeof m.content === 'string' ? m.content
-      : m.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
-    mesaje.push({ role: m.role, content: continut });
+    mesaje.push({ role: m.role, content: traduContinut(m.content) });
   }
 
   // Suprascriere LIVE din pagina de Setari (setari_model, vezi db.js), citita

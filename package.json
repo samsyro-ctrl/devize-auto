@@ -13,9 +13,11 @@
     "node": ">=22"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.8",
     "dotenv": "^16.4.5",
     "mammoth": "^1.8.0",
     "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^6.2.108",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "author": "Delta Concept",
