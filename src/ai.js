@@ -17,6 +17,16 @@
 
 const URL_OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
 
+// Fara asta, o cerere care NU raspunde (nu eroare, doar tacere) ramane
+// agatata la nesfarsit -- gasire reala (11.09.2026, transcriereVizuala.js):
+// un job de 10 pagini a durat 23 de minute in loc de ~2, pentru ca cererile
+// agatate au blocat workerii de paralelism minute intregi inainte sa esueze,
+// iar reincercarea (fara timeout) a asteptat din nou la fel de mult. 90s e
+// generos fata de cele mai lente pagini reale masurate (~43s, planuri CAD
+// complexe) -- opreste doar cererile chiar agatate, nu pe cele normale, dar
+// lente.
+const TIMEOUT_MS = 90000;
+
 // Scurtaturile deja folosite in .env (MODEL_EXTRAGERE/MODEL_SCOP/
 // MODEL_COMPLETITUDINE), pastrate ca sa continue sa mearga neschimbate --
 // acelasi HARTA_MODELE ca in recrutare-bot.
@@ -83,6 +93,7 @@ function traduCerere(cerere) {
  * 401=cheie, 429=aglomerat) e semnalul principal -- verificat live contra
  * OpenRouter in recrutare-bot; regex-urile raman ca plasa secundara. */
 function felEroare(e) {
+  if (e && e.name === 'AbortError') return 'timeout';
   const status = e && e.status;
   if (status === 402) return 'credit';
   if (status === 401) return 'cheie';
@@ -100,6 +111,7 @@ const MESAJE = {
   cheie: 'Problema cu OPENROUTER_API_KEY -- verifica .env.',
   aglomerat: 'Serviciul de AI e aglomerat chiar acum. Mai incearca peste un minut.',
   retea: 'Nu am putut ajunge la serviciul de AI. Mai incearca peste un minut.',
+  timeout: `Cererea catre serviciul de AI nu a raspuns in ${TIMEOUT_MS / 1000}s si a fost intrerupta. Mai incearca.`,
   altceva: 'Ceva n-a mers la apelul catre Claude. Mai incearca o data.',
 };
 
@@ -114,9 +126,12 @@ const mesajOmenesc = (e) => MESAJE[felEroare(e)] || MESAJE.altceva;
  * @param {string} unde     de unde vine apelul, pentru jurnal
  */
 async function cheama(cerere, unde = 'necunoscut') {
+  const controller = new AbortController();
+  const idTimeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
     const r = await fetch(URL_OPENROUTER, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
@@ -141,6 +156,8 @@ async function cheama(cerere, unde = 'necunoscut') {
     e.felAI = felEroare(e);
     e.mesajOmenesc = mesajOmenesc(e);
     throw e;
+  } finally {
+    clearTimeout(idTimeout);
   }
 }
 

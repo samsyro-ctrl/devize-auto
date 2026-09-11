@@ -40,7 +40,7 @@ const CONCURENTA_IMPLICITA = 4;
 const PRAG_INCERCARI = 3;
 const INTARZIERE_BAZA_MS = 1200;
 
-const FELURI_REINCERCABILE = new Set(['retea', 'aglomerat']);
+const FELURI_REINCERCABILE = new Set(['retea', 'aglomerat', 'timeout']);
 
 /** Asteapta `ms` milisecunde. */
 function asteapta(ms) {
