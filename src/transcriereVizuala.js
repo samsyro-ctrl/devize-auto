@@ -31,7 +31,15 @@ REGULI STRICTE:
    punctuatie, cat de fidel poti citi. NU corecta, NU parafrazezi, NU
    rezumi -- e o transcriere, nu un rezumat.
 2. Pastreaza structura vizuala pe cat posibil: titluri, paragrafe, liste cu
-   marcatori, randuri de tabel (separate prin " | " intre coloane).
+   marcatori, randuri de tabel (separate prin " | " intre coloane). La un
+   tabel cu mai multe randuri, pastreaza GRANITA fiecarui rand exact cum
+   apare vizual (linia orizontala dintre randuri) -- daca o celula dintr-un
+   rand e goala (fara eticheta sau fara continut), acel rand tot iese SEPARAT
+   (cu " | -" pentru celula goala), NU se alipeste continutul lui la eticheta
+   randului urmator. Confirmat pe caz real (CS semnat.pdf, SCN1179096, pag.
+   12): un rand cu eticheta goala pe stanga si text pe dreapta, verificat
+   direct pe randare la rezolutie mare -- fara regula asta, un rand cu eticheta
+   goala risca sa fie omis din structura sau alipit gresit de randul vecin.
 3. Daca un cuvant/o cifra e ilizibil(a) (acoperit de o stampila, prea neclar),
    noteaza [ilizibil] in locul acelui cuvant -- NU ghici, NU completa cu ce
    "probabil" scrie acolo. Daca o stampila e doar partial lizibila, transcrie
