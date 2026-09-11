@@ -28,6 +28,26 @@ const PRAG_TEXT_INSUFICIENT = 500;
 // explicit asta. De marit daca se dovedeste prea mic in practica.
 const PRAG_PAGINI_TRANSCRIERE = 60;
 
+// Semn ca extragerea nativa a "lipit" doua celule de tabel invecinate fara
+// niciun spatiu intre ele -- caz DIFERIT de text insuficient: documentul
+// poate avea sute de mii de caractere, dar cu coloane pierdute. Gasit real,
+// pe un deviz de productie (SCN1179408, "Devize fara pret Autobaza.pdf"):
+// pdf-parse intorcea "0,000,00" acolo unde pagina are de fapt DOUA coloane
+// distincte (Valoare neeligibila + TVA), ambele "0,00" -- verificat direct,
+// randare vizuala a paginii arata clar cele doua coloane separate.
+//
+// STRICT pe virgula (nu si punct) pentru ambele grupuri zecimale -- un punct
+// in pozitia asta e aproape sigur separator de mii intr-un numar romanesc
+// normal (ex. "6.063.114,68 lei"), NU doua sume lipite. Gasire reala: prima
+// versiune a tiparului (cu [.,] in loc de ,) dadea fals-pozitiv pe caietul
+// de sarcini SCN1177636 -- text perfect valid, doar cu sume mari, cu
+// separator de mii. Cerand VIRGULA in ambele jumatati, un numar romanesc
+// normal (o singura virgula, oricate puncte de grupare) nu mai poate
+// potrivi niciodata -- doar doua sume distincte, fiecare cu propria
+// virgula zecimala, lipite fara spatiu intre ele.
+const TIPAR_CIFRE_LIPITE = /\d,\d{2}\d,\d{2}/g;
+const PRAG_CIFRE_LIPITE = 5;
+
 // Un deviz standard (HG907/2016) are, pe langa formularele F2/F3 cu articole
 // de lucrari reale (astea chiar trebuie extrase), si formulare DERIVATE, care
 // doar REZUMA ce e deja in F2/F3 -- centralizatorul (F1) si extrasele de
@@ -88,15 +108,17 @@ function doarPozitiiDeNivelUnu(csv) {
 }
 
 /**
- * Un PDF cu text nativ insuficient (sub PRAG_TEXT_INSUFICIENT) -- probabil
- * scanat, fara OCR la sursa (confirmat pe documente PT reale, vezi decizia
- * din transcriereVizuala.js: modelul cu vedere citeste mult mai fidel decat
- * OCR clasic pe documentele romanesti reale, cu stampile/semnaturi
- * suprapuse). Incearca transcrierea vizuala, pagina cu pagina; daca esueaza
- * (fara cheie OpenRouter, eroare de retea etc.), ramane la textul nativ
- * (posibil gol) -- nu blocheaza niciodata restul extragerii.
+ * Un PDF cu text nativ NEFOLOSITOR -- fie insuficient (probabil scanat, fara
+ * OCR la sursa), fie cu coloane lipite (vezi TIPAR_CIFRE_LIPITE). In ambele
+ * cazuri, modelul cu vedere citeste mult mai fidel decat ce poate scoate
+ * pdf-parse (confirmat pe documente PT reale SI pe un deviz tabelar real,
+ * vezi transcriereVizuala.js si comentariul de la TIPAR_CIFRE_LIPITE).
+ * Incearca transcrierea vizuala, pagina cu pagina; daca esueaza (fara cheie
+ * OpenRouter, eroare de retea etc.), ramane la textul nativ (posibil gol) --
+ * nu blocheaza niciodata restul extragerii.
+ * @param {string} motiv "text insuficient" sau "coloane lipite" -- pentru avertismentul afisat
  */
-async function textDinPdfScanat(f, textNativ, avertismente) {
+async function textDinPdfScanat(f, textNativ, avertismente, motiv) {
   if (!process.env.OPENROUTER_API_KEY) {
     if (textNativ.trim().length === 0) {
       avertismente.push(`${f.nume}: PDF fara text nativ (probabil scanat) si OPENROUTER_API_KEY nu e setat -- nu pot incerca transcrierea vizuala.`);
@@ -116,7 +138,7 @@ async function textDinPdfScanat(f, textNativ, avertismente) {
       avertismente.push(`${f.nume}: document scanat cu ${numPagini} pagini -- transcrise doar primele ${PRAG_PAGINI_TRANSCRIERE} (cap de cost/timp).`);
     }
     if (!textTranscris.trim().length) return textNativ;
-    avertismente.push(`${f.nume}: text nativ insuficient (${textNativ.trim().length} caractere) -- folosit text transcris cu modelul cu vedere (document probabil scanat).`);
+    avertismente.push(`${f.nume}: text nativ nefolositor (${motiv}) -- folosit text transcris cu modelul cu vedere.`);
     return textTranscris;
   } catch (err) {
     avertismente.push(`${f.nume}: transcriere vizuala esuata (${err.message}) -- ramane textul nativ (${textNativ.trim().length} caractere).`);
@@ -137,8 +159,14 @@ async function textDinFisier(f, avertismente = []) {
       const pdfParse = require('pdf-parse');
       const data = await pdfParse(fs.readFileSync(f.cale));
       const textNativ = data.text || '';
-      if (textNativ.trim().length >= PRAG_TEXT_INSUFICIENT) return textNativ;
-      return await textDinPdfScanat(f, textNativ, avertismente);
+      if (textNativ.trim().length < PRAG_TEXT_INSUFICIENT) {
+        return await textDinPdfScanat(f, textNativ, avertismente, 'text insuficient, posibil scanat');
+      }
+      const cifreLipite = textNativ.match(TIPAR_CIFRE_LIPITE) || [];
+      if (cifreLipite.length >= PRAG_CIFRE_LIPITE) {
+        return await textDinPdfScanat(f, textNativ, avertismente, `${cifreLipite.length} perechi de cifre lipite fara separator -- probabil coloane de tabel pierdute la extragere`);
+      }
+      return textNativ;
     }
     if (ext === '.docx') {
       const mammoth = require('mammoth');
