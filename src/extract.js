@@ -12,6 +12,22 @@ const { fold } = require('./util');
 
 const TEXT_EXT = new Set(['.txt', '.csv']);
 
+// Sub cate caractere consideram ca un PDF NU are strat de text util --
+// probabil o scanare (fara OCR aplicat la sursa). Calibrat pe documente PT
+// reale: scanari confirmate au intors intre 0 si 282 caractere (doar
+// spatii/artefacte de layout), in timp ce documente cu text real, chiar
+// scurte, trec cu mult peste (un caiet de sarcini real a dat 147.000+
+// caractere). Vezi transcriereVizuala.js pentru decizia de a NU folosi OCR
+// clasic aici.
+const PRAG_TEXT_INSUFICIENT = 500;
+
+// Cap de siguranta pe numarul de pagini transcrise automat -- transcrierea
+// vizuala e un apel AI PER PAGINA; fara cap, un document scanat de sute de
+// pagini (vazute real: 96, 141, 377 pagini) ar declansa sute de apeluri la
+// un simplu upload, cu cost si timp mari, fara ca utilizatorul sa fi cerut
+// explicit asta. De marit daca se dovedeste prea mic in practica.
+const PRAG_PAGINI_TRANSCRIERE = 60;
+
 // Un deviz standard (HG907/2016) are, pe langa formularele F2/F3 cu articole
 // de lucrari reale (astea chiar trebuie extrase), si formulare DERIVATE, care
 // doar REZUMA ce e deja in F2/F3 -- centralizatorul (F1) si extrasele de
@@ -72,6 +88,43 @@ function doarPozitiiDeNivelUnu(csv) {
 }
 
 /**
+ * Un PDF cu text nativ insuficient (sub PRAG_TEXT_INSUFICIENT) -- probabil
+ * scanat, fara OCR la sursa (confirmat pe documente PT reale, vezi decizia
+ * din transcriereVizuala.js: modelul cu vedere citeste mult mai fidel decat
+ * OCR clasic pe documentele romanesti reale, cu stampile/semnaturi
+ * suprapuse). Incearca transcrierea vizuala, pagina cu pagina; daca esueaza
+ * (fara cheie OpenRouter, eroare de retea etc.), ramane la textul nativ
+ * (posibil gol) -- nu blocheaza niciodata restul extragerii.
+ */
+async function textDinPdfScanat(f, textNativ, avertismente) {
+  if (!process.env.OPENROUTER_API_KEY) {
+    if (textNativ.trim().length === 0) {
+      avertismente.push(`${f.nume}: PDF fara text nativ (probabil scanat) si OPENROUTER_API_KEY nu e setat -- nu pot incerca transcrierea vizuala.`);
+    }
+    return textNativ;
+  }
+  try {
+    const { transcrieDocument } = require('./transcriereVizuala');
+    const avertismenteTranscriere = [];
+    const { text: textTranscris, numPagini } = await transcrieDocument(
+      f.cale,
+      avertismenteTranscriere,
+      { paginaEnd: PRAG_PAGINI_TRANSCRIERE },
+    );
+    for (const a of avertismenteTranscriere) avertismente.push(`${f.nume}: ${a}`);
+    if (numPagini > PRAG_PAGINI_TRANSCRIERE) {
+      avertismente.push(`${f.nume}: document scanat cu ${numPagini} pagini -- transcrise doar primele ${PRAG_PAGINI_TRANSCRIERE} (cap de cost/timp).`);
+    }
+    if (!textTranscris.trim().length) return textNativ;
+    avertismente.push(`${f.nume}: text nativ insuficient (${textNativ.trim().length} caractere) -- folosit text transcris cu modelul cu vedere (document probabil scanat).`);
+    return textTranscris;
+  } catch (err) {
+    avertismente.push(`${f.nume}: transcriere vizuala esuata (${err.message}) -- ramane textul nativ (${textNativ.trim().length} caractere).`);
+    return textNativ;
+  }
+}
+
+/**
  * Extrage textul dintr-un singur fisier. Intoarce '' daca formatul nu e citibil.
  * @param {{nume:string, cale:string}} f
  * @param {string[]} [avertismente]
@@ -83,7 +136,9 @@ async function textDinFisier(f, avertismente = []) {
     if (ext === '.pdf') {
       const pdfParse = require('pdf-parse');
       const data = await pdfParse(fs.readFileSync(f.cale));
-      return data.text || '';
+      const textNativ = data.text || '';
+      if (textNativ.trim().length >= PRAG_TEXT_INSUFICIENT) return textNativ;
+      return await textDinPdfScanat(f, textNativ, avertismente);
     }
     if (ext === '.docx') {
       const mammoth = require('mammoth');
