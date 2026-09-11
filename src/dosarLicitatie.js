@@ -95,4 +95,6 @@ function documenteDinDosar(caleDosar) {
   return peClasa;
 }
 
-module.exports = { documenteDinDosar, clasifica, CLASE };
+module.exports = {
+  documenteDinDosar, clasifica, CLASE, ESTE_LIZIBIL, ESTE_P7S,
+};

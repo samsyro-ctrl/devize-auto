@@ -15,12 +15,41 @@ const descompunere = require('./descompunere');
 const preturi = require('./preturi');
 const deviz = require('./deviz');
 const bfla = require('./bfla');
+const dosarLicitatie = require('./dosarLicitatie');
+const documenteServer = require('./documenteServer');
 const { slug } = require('./util');
 
 const OUTPUT_DIR = path.join(__dirname, '..', 'output');
 
 function caleProiect(proiectId, ...parti) {
   return path.join(OUTPUT_DIR, 'proiecte', String(proiectId), ...parti);
+}
+
+/**
+ * Documentele unei licitatii (grupate pe clasa, vezi dosarLicitatie.js),
+ * indiferent daca au fost deja descarcate in licitatie-analiza (analiza
+ * GO/NO-GO facuta) sau exista doar in mirror-ul SharePoint sincronizat pe
+ * server (licitatii "IN LUCRU pentru depunere", fara dosar local aici --
+ * cazul comun, verificat pe SCN1179408). Local intai (gratuit, fara retea);
+ * server doar cand nu exista deloc dosar local -- clar semnalat de fiecare
+ * data care sursa a fost folosita, niciodata ghicit tacut.
+ * @param {string} idLicitatie
+ * @param {string[]} avertismente
+ * @returns {Promise<Object<string, Array<{nume, cale, clasa}>>>}
+ * @throws {Error} daca nici local, nici pe server nu se gaseste nimic.
+ */
+async function gasesteDocumenteLicitatie(idLicitatie, avertismente) {
+  const dirLicitatieAnaliza = process.env.LICITATIE_ANALIZA_DIR;
+  if (dirLicitatieAnaliza) {
+    const caleDosar = path.join(dirLicitatieAnaliza, 'dosare', idLicitatie);
+    if (fs.existsSync(caleDosar)) {
+      console.log(`Dosar local gasit (licitatie-analiza): ${caleDosar}`);
+      return dosarLicitatie.documenteDinDosar(caleDosar);
+    }
+  }
+  console.log(`Niciun dosar local pentru ${idLicitatie} -- incerc sursa server (SharePoint sync, prin Core API)...`);
+  const dirDescarcare = path.join(OUTPUT_DIR, '_documente-server', idLicitatie);
+  return documenteServer.documenteDinServer(idLicitatie, dirDescarcare, avertismente);
 }
 
 /**
@@ -251,18 +280,15 @@ async function comandaImportaLicitatie(args) {
   const nume = idxNume >= 0 ? args[idxNume + 1] : (idLicitatie ? `Licitatie ${idLicitatie}` : null);
   if (!idLicitatie) { console.error('Da id-ul licitatiei (ex. SCN1177636).'); process.exit(1); }
 
-  const dirLicitatieAnaliza = process.env.LICITATIE_ANALIZA_DIR;
-  if (!dirLicitatieAnaliza) { console.error('Lipseste LICITATIE_ANALIZA_DIR in .env.'); process.exit(1); }
-  const caleDosar = path.join(dirLicitatieAnaliza, 'dosare', idLicitatie);
-
-  const dosarLicitatie = require('./dosarLicitatie');
+  const avertismenteDocumente = [];
   let peClasa;
   try {
-    peClasa = dosarLicitatie.documenteDinDosar(caleDosar);
+    peClasa = await gasesteDocumenteLicitatie(idLicitatie, avertismenteDocumente);
   } catch (e) {
     console.error(e.message);
     process.exit(1);
   }
+  if (avertismenteDocumente.length) avertismenteDocumente.forEach((a) => console.log(`⚠️  ${a}`));
 
   console.log(`Documente gasite in dosarul ${idLicitatie}:`);
   for (const [clasa, docs] of Object.entries(peClasa)) {
@@ -323,14 +349,10 @@ async function comandaPredefineste(args) {
   const nume = idxNume >= 0 ? args[idxNume + 1] : (idLicitatie ? `Licitatie ${idLicitatie}` : null);
   if (!idLicitatie) { console.error('Da id-ul licitatiei (ex. SCN1177636).'); process.exit(1); }
 
-  const dirLicitatieAnaliza = process.env.LICITATIE_ANALIZA_DIR;
-  if (!dirLicitatieAnaliza) { console.error('Lipseste LICITATIE_ANALIZA_DIR in .env.'); process.exit(1); }
-  const caleDosar = path.join(dirLicitatieAnaliza, 'dosare', idLicitatie);
-
-  const dosarLicitatie = require('./dosarLicitatie');
+  const avertismente = [];
   let peClasa;
   try {
-    peClasa = dosarLicitatie.documenteDinDosar(caleDosar);
+    peClasa = await gasesteDocumenteLicitatie(idLicitatie, avertismente);
   } catch (e) {
     console.error(e.message);
     process.exit(1);
@@ -341,7 +363,6 @@ async function comandaPredefineste(args) {
     console.log(`  ${clasa}: ${docs.map((d) => d.nume).join(', ')}`);
   }
 
-  const avertismente = [];
   const { documente: documenteScop, text: textScop } = await asambleazaTextScop(peClasa, avertismente);
   if (!documenteScop.length || !textScop.trim()) {
     console.error('\nNiciun caiet de sarcini/fisa de date/clarificare citibil in acest dosar -- fara documentatie tehnica nu se poate genera nimic.');
@@ -458,8 +479,8 @@ async function main() {
       console.log(`Comenzi disponibile:
   incarca <fisier> --proiect "Nume"        antemasuratoare LIBERA (Excel/PDF/Word) -- aleg singur articolele din nomenclator
   incarca-deviz <fisier> --proiect "Nume"  deviz DEJA structurat (impus), fara valori -- respecta codurile date, semnaleaza ce nu se leaga
-  importa-licitatie <idLicitatie> --proiect "Nume"   importa direct dintr-o licitatie urmarita in licitatie-analiza (antemasuratoare + scop)
-  predefineste <idLicitatie> --proiect "Nume"        genereaza devizul DE LA ZERO (fara liste_cantitati in dosar) -- din scop + documentatie tehnica
+  importa-licitatie <idLicitatie> --proiect "Nume"   importa direct dintr-o licitatie (dosar local licitatie-analiza, sau -- daca nu exista -- direct din server/SharePoint prin Core API)
+  predefineste <idLicitatie> --proiect "Nume"        genereaza devizul DE LA ZERO (fara liste_cantitati in dosar) -- din scop + documentatie tehnica (aceeasi sursa dubla ca importa-licitatie)
   verifica-completitudine <proiectId>  verifica daca devizul acopera tot ce cere documentatia licitatiei (dupa importa-licitatie/predefineste)
   revizuieste <proiectId>              revizuieste liniile nesigure/nepotrivite
   genereaza <proiectId>                descompune liniile confirmate in resurse
