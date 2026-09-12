@@ -145,11 +145,23 @@ async function cheama(cerere, unde = 'necunoscut') {
       throw e;
     }
     const text = j.choices?.[0]?.message?.content;
-    if (!text) throw new Error('Raspuns gol de la OpenRouter (fara choices[0].message.content).');
     // Anthropic API intoarce si "stop_reason" (verificat in antemasuratoare.js
     // pentru trunchiere la max_tokens) -- OpenRouter foloseste "finish_reason"
     // per alegere, tradus aici ca apelantul sa nu stie ca transportul s-a schimbat.
     const stopReason = j.choices?.[0]?.finish_reason === 'length' ? 'max_tokens' : 'end_turn';
+    if (!text) {
+      // Sub json_schema strict, un raspuns trunchiat de max_tokens vine cu
+      // "content" COMPLET gol, nu text partial -- confirmat real (11.09.2026,
+      // document mare, 8/8 bucati esuate identic: toate HTTP 200, JSON valid,
+      // finish_reason "length", content lipsa). Fara aceasta ramura, aici s-ar
+      // arunca o eroare generica INAINTE ca apelantul (antemasuratoare.js,
+      // cantitatiPT.js, etc. -- toate scrise deja sa verifice stop_reason
+      // 'max_tokens' primul) sa apuce sa-si foloseasca propria logica de
+      // impartire/reincercare pe bucata prea mare -- acea logica exista deja
+      // peste tot, dar era de neatins din cauza asta.
+      if (stopReason === 'max_tokens') return { content: [{ type: 'text', text: '' }], stop_reason: stopReason };
+      throw new Error('Raspuns gol de la OpenRouter (fara choices[0].message.content).');
+    }
     return { content: [{ type: 'text', text }], stop_reason: stopReason };
   } catch (e) {
     console.error(`⚠️  Apel Claude esuat (${unde}): ${mesajOmenesc(e)}`);
