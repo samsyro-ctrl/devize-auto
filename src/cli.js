@@ -470,7 +470,8 @@ function comandaImportaPreturiIstorice(args) {
   console.log(`Fisiere C6/C7/C8/C9 procesate: ${stare.fisiereProcesate}`);
   console.log(`Randuri de resurse gasite: ${stare.randuriGasite}`);
   console.log(`  potrivite exact in nomenclator: ${stare.potriviteExact}`);
-  console.log(`  potrivite ambiguu (cod cu mai multe descrieri): ${stare.potriviteAmbiguu}`);
+  console.log(`  rezolvate prin contextul formularului (C7=meserie, C6/C8/C9=nu): ${stare.rezolvatePrinContext}`);
+  console.log(`  ramase ambiguue (istoric_ambiguu, de verificat manual): ${stare.potriviteAmbiguu}`);
   console.log(`  nepotrivite (cod inexistent in nomenclator): ${stare.nepotrivite}`);
   if (stare.avertismente.length) {
     console.log(`\n${stare.avertismente.length} avertismente (primele 20):`);

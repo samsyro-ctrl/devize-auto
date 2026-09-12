@@ -455,7 +455,10 @@ function colectiiPentruCodNomenclator(cod) {
   const distincte = [];
   const vazute = new Set();
   for (const r of randuri) {
-    const cheie = `${r.descriere}${r.unitate}`;
+    // Case-insensitiv -- editii diferite scriu uneori aceeasi descriere cu
+    // majuscule diferite (ex. "saci, s 545/1" vs "saci, S 545/1"), fara sa
+    // fie o ambiguitate reala (confirmat manual, 12.09.2026).
+    const cheie = `${String(r.descriere).toLowerCase()}${String(r.unitate).toLowerCase()}`;
     if (vazute.has(cheie)) continue; // eslint-disable-line no-continue
     vazute.add(cheie);
     distincte.push(r);

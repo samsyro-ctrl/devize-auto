@@ -190,18 +190,49 @@ function extrageResurse(cale, tip) {
   return rezultat;
 }
 
+// Un cod poate exista in nomenclator de doua ori cu descrieri GENUIN diferite
+// (nu doar variatii de scriere) -- gasit real (12.09.2026): coduri "200000XX"
+// desemneaza cand o MESERIE (colectia norme_munca sau alta), cand un UTILAJ,
+// in editii diferite. Alegerea corecta depinde de TIPUL formularului sursa:
+// un cod dintr-un C7 (manopera) trebuie sa fie o meserie; un cod din C6/C8/C9
+// (materiale/utilaj/transport) NU trebuie sa fie o meserie. Recunoastem o
+// descriere de meserie dupa forma ei tipica -- incepe cu un titlu de ocupatie
+// sau contine calificativul de incadrare ("categoria a ...-a", "grila de
+// incadrare") -- mai robust decat sa presupunem ca toate meseriile stau in
+// colectia "norme_munca" (nu stau -- unele apar si in "intersoft").
+const TIPARE_OCUPATIE = /categoria\s+a\s+[a-z0-9]+[\s-]*a\b|grila\s+de\s+incadrare|^(muncitor|inginer|tehnician|sef|maistru|instalator|sudor|electrician|mecanic|operator|sofer|macaragiu|zidar|dulgher|fierar|vopsitor|zugrav|tencuitor|lacatus|strungar|frezor|forjor|tinichigiu|betonist|fochist|parchetar|faiantar|tapiter|silvicultor|tiparitor|fotoreproducator|conducator)\b/i;
+
+/**
+ * Dintre mai multi candidati (acelasi cod, descrieri diferite), alege pe cel
+ * potrivit pentru tipul de formular sursa -- C7 vrea o meserie, C6/C8/C9 vor
+ * orice ALTCEVA decat o meserie. Intoarce null daca ramane ambiguu si dupa
+ * filtrare (nu ghicim mai departe -- mai bine semnalat clar).
+ */
+function aleCandidatContextual(candidati, tip) {
+  const ocupatii = candidati.filter((c) => TIPARE_OCUPATIE.test(c.descriere));
+  const neOcupatii = candidati.filter((c) => !TIPARE_OCUPATIE.test(c.descriere));
+  const preferate = tip === 'C7' ? ocupatii : neOcupatii;
+  return preferate.length === 1 ? preferate[0] : null;
+}
+
 /**
  * Importa toate resursele de pret (C6/C7/C8/C9) dintr-un folder, recursiv, in
  * istoric_preturi. NU atinge preturi_curente/nomenclator_articole -- doar
  * observatii noi, aditive. Documentul-sursa e calea relativa la dirRadacina,
  * ca originea sa ramana verificabila.
  * @param {string} dirRadacina
- * @returns {{fisiereProcesate, randuriGasite, potriviteExact, potriviteAmbiguu, nepotrivite}}
+ * @returns {{fisiereProcesate, randuriGasite, potriviteExact, rezolvatePrinContext, potriviteAmbiguu, nepotrivite}}
  */
 function importaPreturiIstorice(dirRadacina) {
   const fisiere = listeazaFisiere(dirRadacina).filter((f) => CLASE_CU_RESURSE.has(f.tip));
   const stare = {
-    fisiereProcesate: 0, randuriGasite: 0, potriviteExact: 0, potriviteAmbiguu: 0, nepotrivite: 0, avertismente: [],
+    fisiereProcesate: 0,
+    randuriGasite: 0,
+    potriviteExact: 0,
+    rezolvatePrinContext: 0,
+    potriviteAmbiguu: 0,
+    nepotrivite: 0,
+    avertismente: [],
   };
 
   for (const f of fisiere) {
@@ -226,9 +257,15 @@ function importaPreturiIstorice(dirRadacina) {
         colectie = candidati[0].colectie;
         stare.potriviteExact += 1;
       } else {
-        colectie = candidati[0].colectie;
-        stare.potriviteAmbiguu += 1;
-        stare.avertismente.push(`cod "${r.cod}" (${caleRelativa}): ${candidati.length} descrieri diferite in nomenclator pentru acelasi cod -- atribuit la "${colectie}", de verificat manual.`);
+        const alesPrinContext = aleCandidatContextual(candidati, f.tip);
+        if (alesPrinContext) {
+          colectie = alesPrinContext.colectie;
+          stare.rezolvatePrinContext += 1;
+        } else {
+          colectie = 'istoric_ambiguu';
+          stare.potriviteAmbiguu += 1;
+          stare.avertismente.push(`cod "${r.cod}" (${caleRelativa}): ${candidati.length} descrieri diferite in nomenclator pentru acelasi cod, nerezolvat nici dupa contextul formularului -- marcat "istoric_ambiguu", de verificat manual.`);
+        }
       }
 
       db.adaugaIstoricPret({
@@ -249,5 +286,5 @@ function importaPreturiIstorice(dirRadacina) {
 }
 
 module.exports = {
-  tipFormular, listeazaFisiere, citesteAntet, extrageResurse, importaPreturiIstorice,
+  tipFormular, listeazaFisiere, citesteAntet, extrageResurse, importaPreturiIstorice, aleCandidatContextual,
 };
