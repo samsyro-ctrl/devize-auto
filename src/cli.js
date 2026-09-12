@@ -451,6 +451,33 @@ async function comandaVerificaCompletitudine(args) {
   }
 }
 
+/** Importa preturi reale din devize vechi CASTIGATOARE (C6/C7/C8/C9 --
+ * materiale/manopera/utilaj/transport), intr-un folder dat, recursiv. Vezi
+ * src/istoricDevize.js -- scrie DOAR in istoric_preturi (aditiv), nu
+ * atinge preturi_curente/nomenclator_articole. */
+function comandaImportaPreturiIstorice(args) {
+  const dirRadacina = args.find((a) => !a.startsWith('--'));
+  if (!dirRadacina || !fs.existsSync(dirRadacina)) {
+    console.error('Da folderul cu devize vechi (recursiv, .xlsx F1/F2cp/F3/C6-C9).');
+    process.exit(1);
+  }
+  const istoricDevize = require('./istoricDevize');
+  const t0 = Date.now();
+  const stare = istoricDevize.importaPreturiIstorice(dirRadacina);
+  const durata = ((Date.now() - t0) / 1000).toFixed(1);
+
+  console.log(`Durata: ${durata}s`);
+  console.log(`Fisiere C6/C7/C8/C9 procesate: ${stare.fisiereProcesate}`);
+  console.log(`Randuri de resurse gasite: ${stare.randuriGasite}`);
+  console.log(`  potrivite exact in nomenclator: ${stare.potriviteExact}`);
+  console.log(`  potrivite ambiguu (cod cu mai multe descrieri): ${stare.potriviteAmbiguu}`);
+  console.log(`  nepotrivite (cod inexistent in nomenclator): ${stare.nepotrivite}`);
+  if (stare.avertismente.length) {
+    console.log(`\n${stare.avertismente.length} avertismente (primele 20):`);
+    stare.avertismente.slice(0, 20).forEach((a) => console.log('  - ' + a));
+  }
+}
+
 function comandaProiecte() {
   const proiecte = db.toateProiectele();
   if (!proiecte.length) { console.log('Niciun proiect inca. Incepe cu "incarca".'); return; }
@@ -474,6 +501,7 @@ async function main() {
     case 'importa-licitatie': return comandaImportaLicitatie(args);
     case 'predefineste': return comandaPredefineste(args);
     case 'verifica-completitudine': return comandaVerificaCompletitudine(args);
+    case 'importa-preturi-istorice': return comandaImportaPreturiIstorice(args);
     case 'proiecte': return comandaProiecte();
     default:
       console.log(`Comenzi disponibile:
@@ -482,6 +510,7 @@ async function main() {
   importa-licitatie <idLicitatie> --proiect "Nume"   importa direct dintr-o licitatie (dosar local licitatie-analiza, sau -- daca nu exista -- direct din server/SharePoint prin Core API)
   predefineste <idLicitatie> --proiect "Nume"        genereaza devizul DE LA ZERO (fara liste_cantitati in dosar) -- din scop + documentatie tehnica (aceeasi sursa dubla ca importa-licitatie)
   verifica-completitudine <proiectId>  verifica daca devizul acopera tot ce cere documentatia licitatiei (dupa importa-licitatie/predefineste)
+  importa-preturi-istorice <folder>    importa preturi reale (C6-C9) din devize vechi CASTIGATOARE, in istoric_preturi
   revizuieste <proiectId>              revizuieste liniile nesigure/nepotrivite
   genereaza <proiectId>                descompune liniile confirmate in resurse
   preturi <proiectId> [cale.xlsx]      exporta lista de resurse pentru pretuire

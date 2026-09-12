@@ -442,6 +442,27 @@ const istoricPreturiPentruArticol = (colectie, cod, limita = 50) => db.prepare(
   'SELECT * FROM istoric_preturi WHERE colectie = ? AND cod = ? ORDER BY creat_la DESC LIMIT ?',
 ).all(colectie, cod, limita);
 
+/** Colectiile din nomenclator care contin un cod dat, distincte dupa
+ * (descriere, unitate) -- mai multe editii ale aceluiasi nomenclator au
+ * adesea acelasi cod cu descriere IDENTICA (nu s-a schimbat intre editii),
+ * caz in care numara ca o singura potrivire, nu una ambigua. Folosit de
+ * istoricDevize.js ca sa lege un cod dintr-un deviz vechi de nomenclatorul
+ * existent, fara sa presupuna la ce editie anume apartine. */
+function colectiiPentruCodNomenclator(cod) {
+  const randuri = db.prepare(
+    'SELECT colectie, descriere, unitate FROM nomenclator_articole WHERE cod = ? ORDER BY colectie',
+  ).all(cod);
+  const distincte = [];
+  const vazute = new Set();
+  for (const r of randuri) {
+    const cheie = `${r.descriere}${r.unitate}`;
+    if (vazute.has(cheie)) continue; // eslint-disable-line no-continue
+    vazute.add(cheie);
+    distincte.push(r);
+  }
+  return distincte;
+}
+
 /** Sugestie AUTOMATA (nu auto-aplicare) de cod pentru un furnizor nou-castigator:
  * daca acelasi furnizor a mai fost legat manual ("Aplica la un cod") de un
  * colectie/cod inainte (SUPPLIER_QUOTE in istoric_preturi), e un candidat
@@ -628,7 +649,7 @@ module.exports = {
   insereazaLiniiAntemasuratoare, liniiPeProiect, liniiCuRezolutiiPeProiect,
   salveazaRezolutie, confirmaRezolutie,
   salveazaPretCurent, pretCurent,
-  adaugaIstoricPret, adaugaIstoricPretSigur, istoricPreturiPentruArticol, sugestiiPentruFurnizor, TIPURI_SURSA_PRET,
+  adaugaIstoricPret, adaugaIstoricPretSigur, istoricPreturiPentruArticol, colectiiPentruCodNomenclator, sugestiiPentruFurnizor, TIPURI_SURSA_PRET,
   stergeResurseAgregate, adaugaResursaAgregata, resurseAgregatePeProiect,
   salveazaVerificariCompletitudine, verificariCompletitudinePeProiect,
   creeazaProiectPentruFirma, proiectePeFirma, proiectDupaIdSiFirma,
