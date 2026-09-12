@@ -47,15 +47,18 @@ function mapModel(id) {
 /** Continutul unui mesaj (forma Anthropic: string sau lista de blocuri) ->
  * forma OpenRouter/OpenAI. Ramane string simplu cat timp mesajul e doar text
  * (comportament neschimbat pentru toti apelantii existenti) -- devine lista
- * de blocuri DOAR cand apare un bloc "image" (Robot B, cantitatiDesenatePT.js
- * -- o pagina PT randata ca imagine, trimisa unui model cu vedere). */
+ * de blocuri cand apare un bloc "image" (Robot B, cantitatiDesenatePT.js --
+ * o pagina PT randata ca imagine, trimisa unui model cu vedere) sau "file"
+ * (ocrIeftin.js -- o pagina PDF trimisa pluginului file-parser/mistral-ocr
+ * de pe OpenRouter, vezi traduCerere pentru "plugins"). */
 function traduContinut(content) {
   if (typeof content === 'string') return content;
-  const areImagini = content.some((b) => b.type === 'image');
-  if (!areImagini) return content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+  const areBlocuriSpeciale = content.some((b) => b.type === 'image' || b.type === 'file');
+  if (!areBlocuriSpeciale) return content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
   return content.map((b) => {
     if (b.type === 'text') return { type: 'text', text: b.text };
     if (b.type === 'image') return { type: 'image_url', image_url: { url: `data:${b.source.media_type};base64,${b.source.data}` } };
+    if (b.type === 'file') return { type: 'file', file: { filename: b.filename, file_data: `data:application/pdf;base64,${b.source.data}` } };
     return { type: 'text', text: '' };
   });
 }
@@ -86,6 +89,10 @@ function traduCerere(cerere) {
       json_schema: { name: 'output', strict: true, schema: cerere.output_config.format.schema },
     };
   }
+  // "plugins" -- trece neschimbat catre OpenRouter (ex. file-parser cu
+  // engine:'mistral-ocr', vezi ocrIeftin.js) -- nu are echivalent in
+  // Anthropic Messages API, deci nu exista un camp Anthropic de tradus.
+  if (cerere.plugins) body.plugins = cerere.plugins;
   return body;
 }
 
@@ -145,6 +152,11 @@ async function cheama(cerere, unde = 'necunoscut') {
       throw e;
     }
     const text = j.choices?.[0]?.message?.content;
+    // "annotations" -- unde plugin-ul file-parser/mistral-ocr (ocrIeftin.js)
+    // pune textul OCR BRUT al fisierului trimis, INDEPENDENT de raspunsul
+    // modelului insusi (care poate fi ignorat -- apelantul cere doar OCR-ul).
+    // Absent la orice alt apelant (ramane null, neschimbat pentru ei).
+    const annotations = j.choices?.[0]?.message?.annotations || null;
     // Anthropic API intoarce si "stop_reason" (verificat in antemasuratoare.js
     // pentru trunchiere la max_tokens) -- OpenRouter foloseste "finish_reason"
     // per alegere, tradus aici ca apelantul sa nu stie ca transportul s-a schimbat.
@@ -159,10 +171,13 @@ async function cheama(cerere, unde = 'necunoscut') {
       // 'max_tokens' primul) sa apuce sa-si foloseasca propria logica de
       // impartire/reincercare pe bucata prea mare -- acea logica exista deja
       // peste tot, dar era de neatins din cauza asta.
-      if (stopReason === 'max_tokens') return { content: [{ type: 'text', text: '' }], stop_reason: stopReason };
-      throw new Error('Raspuns gol de la OpenRouter (fara choices[0].message.content).');
+      if (stopReason === 'max_tokens') return { content: [{ type: 'text', text: '' }], stop_reason: stopReason, annotations };
+      // La OCR (ocrIeftin.js) textul modelului-purtator poate fi gol/trivial
+      // in mod normal -- ce conteaza e "annotations", nu raspunsul modelului.
+      // Aruncam "raspuns gol" doar daca NICIUNA din cele doua nu exista.
+      if (!annotations) throw new Error('Raspuns gol de la OpenRouter (fara choices[0].message.content si fara annotations).');
     }
-    return { content: [{ type: 'text', text }], stop_reason: stopReason };
+    return { content: [{ type: 'text', text: text || '' }], stop_reason: stopReason, annotations };
   } catch (e) {
     console.error(`⚠️  Apel Claude esuat (${unde}): ${mesajOmenesc(e)}`);
     e.felAI = felEroare(e);

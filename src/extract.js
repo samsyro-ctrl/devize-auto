@@ -21,12 +21,13 @@ const TEXT_EXT = new Set(['.txt', '.csv']);
 // clasic aici.
 const PRAG_TEXT_INSUFICIENT = 500;
 
-// Cap de siguranta pe numarul de pagini transcrise automat -- transcrierea
-// vizuala e un apel AI PER PAGINA; fara cap, un document scanat de sute de
-// pagini (vazute real: 96, 141, 377 pagini) ar declansa sute de apeluri la
-// un simplu upload, cu cost si timp mari, fara ca utilizatorul sa fi cerut
-// explicit asta. De marit daca se dovedeste prea mic in practica.
-const PRAG_PAGINI_TRANSCRIERE = 60;
+// Fostul cap de siguranta pe numarul de pagini transcrise (60) NU mai
+// limiteaza aici -- de la ocrIeftin.js (12.09.2026), OCR-ul ieftin acopera
+// TOATE paginile documentului, oricat de mare (validat real: 339 pagini,
+// SCN1179715, $0.68 total, 0 esecuri). Plafonul s-a MUTAT in ocrIeftin.js
+// (PRAG_PAGINI_VEDERE), unde limiteaza doar cate pagini pot fi escaladate la
+// modelul de vedere -- scump, folosit doar cand OCR-ul chiar nu se descurca
+// (stampile, scris de mana).
 
 // Semn ca extragerea nativa a "lipit" doua celule de tabel invecinate fara
 // niciun spatiu intre ele -- caz DIFERIT de text insuficient: documentul
@@ -110,10 +111,13 @@ function doarPozitiiDeNivelUnu(csv) {
 /**
  * Un PDF cu text nativ NEFOLOSITOR -- fie insuficient (probabil scanat, fara
  * OCR la sursa), fie cu coloane lipite (vezi TIPAR_CIFRE_LIPITE). In ambele
- * cazuri, modelul cu vedere citeste mult mai fidel decat ce poate scoate
- * pdf-parse (confirmat pe documente PT reale SI pe un deviz tabelar real,
- * vezi transcriereVizuala.js si comentariul de la TIPAR_CIFRE_LIPITE).
- * Incearca transcrierea vizuala, pagina cu pagina; daca esueaza (fara cheie
+ * cazuri, OCR ieftin (ocrIeftin.js) citeste mult mai fidel decat ce poate
+ * scoate pdf-parse -- si, spre deosebire de modelul de vedere folosit
+ * singur inainte (12.09.2026), acopera documentul INTREG, oricat de mare
+ * (validat real: 339 pagini). Modelul de vedere ramane folosit, dar doar pe
+ * paginile unde OCR-ul chiar nu se descurca (stampile, scris de mana) --
+ * vezi ocrIeftin.transcrieDocumentHibrid.
+ * Incearca transcrierea, pagina cu pagina; daca esueaza (fara cheie
  * OpenRouter, eroare de retea etc.), ramane la textul nativ (posibil gol) --
  * nu blocheaza niciodata restul extragerii.
  * @param {string} motiv "text insuficient" sau "coloane lipite" -- pentru avertismentul afisat
@@ -121,27 +125,20 @@ function doarPozitiiDeNivelUnu(csv) {
 async function textDinPdfScanat(f, textNativ, avertismente, motiv) {
   if (!process.env.OPENROUTER_API_KEY) {
     if (textNativ.trim().length === 0) {
-      avertismente.push(`${f.nume}: PDF fara text nativ (probabil scanat) si OPENROUTER_API_KEY nu e setat -- nu pot incerca transcrierea vizuala.`);
+      avertismente.push(`${f.nume}: PDF fara text nativ (probabil scanat) si OPENROUTER_API_KEY nu e setat -- nu pot incerca transcrierea.`);
     }
     return textNativ;
   }
   try {
-    const { transcrieDocument } = require('./transcriereVizuala');
+    const { transcrieDocumentHibrid } = require('./ocrIeftin');
     const avertismenteTranscriere = [];
-    const { text: textTranscris, numPagini } = await transcrieDocument(
-      f.cale,
-      avertismenteTranscriere,
-      { paginaEnd: PRAG_PAGINI_TRANSCRIERE },
-    );
+    const { text: textTranscris } = await transcrieDocumentHibrid(f.cale, avertismenteTranscriere);
     for (const a of avertismenteTranscriere) avertismente.push(`${f.nume}: ${a}`);
-    if (numPagini > PRAG_PAGINI_TRANSCRIERE) {
-      avertismente.push(`${f.nume}: document scanat cu ${numPagini} pagini -- transcrise doar primele ${PRAG_PAGINI_TRANSCRIERE} (cap de cost/timp).`);
-    }
     if (!textTranscris.trim().length) return textNativ;
-    avertismente.push(`${f.nume}: text nativ nefolositor (${motiv}) -- folosit text transcris cu modelul cu vedere.`);
+    avertismente.push(`${f.nume}: text nativ nefolositor (${motiv}) -- folosit text transcris (OCR + vedere pe paginile necesare).`);
     return textTranscris;
   } catch (err) {
-    avertismente.push(`${f.nume}: transcriere vizuala esuata (${err.message}) -- ramane textul nativ (${textNativ.trim().length} caractere).`);
+    avertismente.push(`${f.nume}: transcriere esuata (${err.message}) -- ramane textul nativ (${textNativ.trim().length} caractere).`);
     return textNativ;
   }
 }
