@@ -23,7 +23,17 @@ const preturi = require('./src/preturi');
 const deviz = require('./src/deviz');
 const bfla = require('./src/bfla');
 const rfq = require('./src/rfq');
+const planExecutie = require('./src/planExecutie');
+const serviciiToken = require('./src/servicii-token');
 const { slug } = require('./src/util');
+
+// Acces pe token de serviciu (src/servicii-token.js, SERVICE_TOKENS din .env)
+// -- pentru UNELTE (Core API), nu oameni; panou.js nu are niciun sistem de
+// conturi (e strict intern, ascultand doar pe 127.0.0.1). Un token valid NU
+// deschide toate rutele, doar cele listate aici -- azi doar "plan-executie",
+// ceruta de buildandfix-core (proxy pentru Ofertetehnice). Tipar identic cu
+// RUTE_PENTRU_SERVICII din licitatie-analiza/panou.js.
+const RUTE_PENTRU_SERVICII = new Set(['/api/plan-executie']);
 
 const PORT = parseInt(process.env.PANOU_PORT, 10) || 7778;
 const RADACINA = __dirname;
@@ -99,6 +109,33 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/favicon.svg') {
       return serveFisier(res, path.join(RADACINA, 'favicon.svg'), 'image/svg+xml');
+    }
+
+    // ─── Plan de executie (WBS/CPM/Gantt/curba S), pe cod de licitatie ───
+    // Singura ruta de aici pe token de serviciu (RUTE_PENTRU_SERVICII, mai
+    // sus) -- apelata azi doar de buildandfix-core, niciodata de panou.html.
+    if (p === '/api/plan-executie' && req.method === 'GET') {
+      const servicu = RUTE_PENTRU_SERVICII.has(p) ? serviciiToken.identificaServiciu(req.headers.authorization) : null;
+      if (!servicu) return json(res, { eroare: 'neautorizat' }, 401);
+
+      const cod = (u.searchParams.get('cod') || '').trim();
+      if (!cod) return json(res, { eroare: 'lipseste parametrul "cod"' }, 400);
+      const proiect = db.proiectDupaCodLicitatie(cod);
+      if (!proiect) return json(res, { eroare: `niciun proiect gasit pentru codul de licitatie "${cod}"` }, 404);
+
+      try {
+        const plan = planExecutie.construiestePlanExecutie(proiect.id);
+        // "complet" = true doar daca NICIO linie a proiectului n-a fost
+        // exclusa ca neconfirmata (vezi avertismentul din agregaPeCapitol) --
+        // Ofertetehnice/Core API il pot arata direct, fara sa parseze textul
+        // avertismentelor ca sa afle daca planul e partial.
+        const complet = db.liniiCuRezolutiiPeProiect(proiect.id).every((l) => ['auto', 'confirmat'].includes(l.stare));
+        return json(res, {
+          proiectId: proiect.id, codLicitatie: cod, complet, ...plan,
+        });
+      } catch (e) {
+        return json(res, { eroare: e.message }, 422);
+      }
     }
 
     // ─── Proiecte ───

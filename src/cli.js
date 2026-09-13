@@ -324,6 +324,7 @@ async function comandaImportaLicitatie(args) {
   console.log(`\nImport antemasuratoare din: ${listeCantitati[0].nume}`);
   const proiectId = await proceseazaIncarcare([listeCantitati[0].cale, '--proiect', nume], matching.alegeMatchCuCod);
   if (!proiectId) { console.error('Importul antemasuratorii a esuat.'); process.exit(1); }
+  db.seteazaCodLicitatie(proiectId, idLicitatie);
 
   const avertismenteScop = [];
   const { documente: documenteScop, text: textScop } = await asambleazaTextScop(peClasa, avertismenteScop);
@@ -407,6 +408,7 @@ async function comandaPredefineste(args) {
   }
 
   const proiectId = db.creeazaProiect(nume, `predefinit din ${idLicitatie}`);
+  db.seteazaCodLicitatie(proiectId, idLicitatie);
   db.insereazaLiniiAntemasuratoare(proiectId, linii);
   db.actualizeazaScopProiect(proiectId, scop);
 

@@ -237,6 +237,13 @@ function deschide(outputDir, numeFisier = 'devize.db') {
   // "importa-licitatie". NULL pentru proiectele incarcate manual (flux
   // vechi, fara nicio legatura cu licitatie-analiza).
   adaugaColoana('proiecte', 'scop_json', 'TEXT');
+  // Codul licitatiei (ex. "SCN1179715") din care a fost creat proiectul --
+  // populat de "importa-licitatie"/"predefineste" (au deja idLicitatie ca
+  // argument). NULL pentru proiectele incarcate manual. Singura mapare
+  // stabila cod-licitatie -> proiectId intern, ceruta de Core API
+  // (buildandfix-core) ca sa poata expune "plan-executie" dupa codul SCN/CN,
+  // nu dupa id-ul intern al lui devize-auto (necunoscut in afara).
+  adaugaColoana('proiecte', 'cod_licitatie', 'TEXT');
 
   // Pentru linii generate de "predefineste" (vezi src/generareDeviz.js), nu
   // incarcate dintr-un document real: cantitatea nu apare explicit in
@@ -363,6 +370,13 @@ function creeazaProiect(nume, fisierSursa) {
 const proiectDupaId = (id) => db.prepare('SELECT * FROM proiecte WHERE id = ?').get(id);
 const toateProiectele = () => db.prepare('SELECT * FROM proiecte ORDER BY id DESC').all();
 const actualizeazaStareProiect = (id, stare) => db.prepare('UPDATE proiecte SET stare = ? WHERE id = ?').run(stare, id);
+
+/** Leaga proiectul de codul licitatiei sursa (ex. "SCN1179715") -- vezi
+ * comentariul de la adaugaColoana('proiecte', 'cod_licitatie', ...). */
+const seteazaCodLicitatie = (id, codLicitatie) => db.prepare('UPDATE proiecte SET cod_licitatie = ? WHERE id = ?').run(codLicitatie, id);
+// Cel mai recent proiect cu acest cod -- un cod poate fi reimportat de mai
+// multe ori (teste, reincarcari); ultimul e mereu cel relevant azi.
+const proiectDupaCodLicitatie = (cod) => db.prepare('SELECT * FROM proiecte WHERE cod_licitatie = ? ORDER BY id DESC LIMIT 1').get(cod);
 
 /** Scopul proiectului (produs/nivel_livrare/activitati, vezi scopProiect.js),
  * salvat ca JSON -- un singur camp, nu un tabel nou, fiindca se citeste mereu
@@ -730,6 +744,7 @@ module.exports = {
   stergeNomenclator, insereazaArticoleNomenclator, insereazaDescompuneriNomenclator,
   reconstruiesteNomenclatorFts, statisticiNomenclator, cautaNomenclator, cautaArticol, cautaDupaCodExact, copiiDescompunere,
   creeazaProiect, proiectDupaId, toateProiectele, actualizeazaStareProiect, actualizeazaScopProiect,
+  seteazaCodLicitatie, proiectDupaCodLicitatie,
   insereazaLiniiAntemasuratoare, liniiPeProiect, liniiCuRezolutiiPeProiect,
   salveazaRezolutie, confirmaRezolutie,
   salveazaPretCurent, pretCurent,
