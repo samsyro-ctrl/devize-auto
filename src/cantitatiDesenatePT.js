@@ -51,7 +51,15 @@ const SCHEMA = {
           },
           cantitate: { type: 'number' },
           unitate: { type: 'string', description: 'Unitatea asa cum apare pe pagina (mp, ml, mc, buc, kg etc).' },
-          sursa: { type: 'string', description: 'Unde exact pe pagina apare cifra (ex. "tabel indicatori, rand 3", "cota de pe plan, colt dreapta sus").' },
+          sursa: {
+            type: 'string',
+            description: 'Unde exact pe pagina apare cifra (ex. "tabel indicatori, rand 3", "cota de '
+              + 'pe plan, colt dreapta sus"). OBLIGATORIU: daca cifra vine dintr-un tabel/extras de '
+              + 'armare (sau orice tabel etichetat explicit "per element"/"per bucata"/similar), '
+              + 'incepe sursa cu "ATENTIE: cantitate PER ELEMENT, verifica numarul de elemente" -- '
+              + 'chiar si cand numarul de elemente NU apare pe aceasta pagina specifica (nu presupune '
+              + 'un multiplicator implicit de 1).',
+          },
         },
       },
     },
@@ -73,6 +81,15 @@ sectiune) SAU ambele -- extrage orice cantitate explicita gasesti, indiferent
 de forma paginii. Daca pagina nu contine nicio cantitate masurabila (ex. e o
 coperta, o pagina goala, sau text pur descriptiv fara cifre), raspunde cu
 lista goala -- e normal, nu o eroare.
+
+ATENTIE la tabele "extras de armare" (sau similare, unde cantitatea e data
+PER ELEMENT structural, nu ca total de proiect): marcheaza-le DINTOTDEAUNA in
+"sursa" cu avertismentul de multiplicare (vezi schema) -- INDIFERENT daca
+numarul de elemente apare sau nu pe aceasta pagina specifica. Gasire reala:
+aceeasi structura de tabel, cu aceeasi nota de avertisment tiparita pe pagina,
+poate aparea pe o pagina CU numarul de elemente explicit si pe alta pagina
+FARA el -- eticheta trebuie sa apara consecvent pe amandoua, nu doar cand
+multiplicatorul e vizibil chiar acolo.
 
 Scopul acestei extrageri e sa fie comparata ULTERIOR cu liniile unui deviz deja
 existent, ca sa se vada daca vreo cantitate e SUBDIMENSIONATA fata de proiect.
@@ -110,14 +127,13 @@ async function randeazaPaginaPng(doc, nrPagina, scale = SCALE) {
 }
 
 /**
- * Trimite O imagine (deja randata) modelului cu vedere si extrage cantitati.
- * Separata de randare deliberat, ca sa poata fi testata izolat cu o imagine
- * falsa, fara sa depinda de pdfjs-dist/randare reala (vezi test izolat).
- * @param {Buffer} pngBuffer
- * @param {string} eticheta -- pentru avertismente (ex. "pagina 10")
- * @param {string[]} avertismente
+ * Trimite O imagine (deja randata) modelului cu vedere, extrage cantitati SI
+ * intoarce costul real al apelului (resp.usage, vezi ai.js) -- separata de
+ * extrageCantitatiDinImagine (mai jos) ca verificareCantitatiPT.js sa poata
+ * estima costul Robotului B dintr-un esantion real, fara sa duplice logica
+ * de apel. @returns {Promise<{cantitati: Array, usage: object|null}>}
  */
-async function extrageCantitatiDinImagine(pngBuffer, eticheta, avertismente) {
+async function extrageCantitatiDinImagineCuCost(pngBuffer, eticheta, avertismente) {
   const base64 = pngBuffer.toString('base64');
   let resp;
   try {
@@ -137,17 +153,30 @@ async function extrageCantitatiDinImagine(pngBuffer, eticheta, avertismente) {
     }, 'cantitatiDesenatePT');
   } catch (e) {
     avertismente.push(`${eticheta}: extragere esuata (${e.mesajOmenesc || e.message}).`);
-    return [];
+    return { cantitati: [], usage: null };
   }
   const block = resp.content.find((b) => b.type === 'text');
-  if (!block) { avertismente.push(`${eticheta}: raspuns gol de la model.`); return []; }
+  if (!block) { avertismente.push(`${eticheta}: raspuns gol de la model.`); return { cantitati: [], usage: resp.usage || null }; }
   try {
     const parsat = JSON.parse(block.text);
-    return parsat.cantitati || [];
+    return { cantitati: parsat.cantitati || [], usage: resp.usage || null };
   } catch {
     avertismente.push(`${eticheta}: raspuns care nu e JSON valid, sarit.`);
-    return [];
+    return { cantitati: [], usage: resp.usage || null };
   }
+}
+
+/**
+ * Trimite O imagine (deja randata) modelului cu vedere si extrage cantitati.
+ * Separata de randare deliberat, ca sa poata fi testata izolat cu o imagine
+ * falsa, fara sa depinda de pdfjs-dist/randare reala (vezi test izolat).
+ * @param {Buffer} pngBuffer
+ * @param {string} eticheta -- pentru avertismente (ex. "pagina 10")
+ * @param {string[]} avertismente
+ */
+async function extrageCantitatiDinImagine(pngBuffer, eticheta, avertismente) {
+  const { cantitati } = await extrageCantitatiDinImagineCuCost(pngBuffer, eticheta, avertismente);
+  return cantitati;
 }
 
 /**
@@ -183,5 +212,5 @@ async function extrageCantitatiDesenatePT(calePdf, avertismente = [], optiuni = 
 }
 
 module.exports = {
-  extrageCantitatiDesenatePT, extrageCantitatiDinImagine, deschidePdf, randeazaPaginaPng,
+  extrageCantitatiDesenatePT, extrageCantitatiDinImagine, extrageCantitatiDinImagineCuCost, deschidePdf, randeazaPaginaPng,
 };

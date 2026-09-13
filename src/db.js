@@ -194,6 +194,26 @@ function deschide(outputDir, numeFisier = 'devize.db') {
     );
     CREATE INDEX IF NOT EXISTS idx_verificari_completitudine_proiect ON verificari_completitudine(proiect_id);
 
+    -- Rezultatul verificarii de CANTITATI insuficiente (Robot A+B+C+D, vezi
+    -- src/verificareCantitatiPT.js) -- o linie per activitate cu cantitate-
+    -- tinta cunoscuta din Proiectul Tehnic, cu verdictul daca devizul are
+    -- destul. Diferit de verificari_completitudine (acolo: activitatea
+    -- exista sau nu in deviz; aici: cantitatea din deviz ajunge sau nu).
+    -- Rerulata = sterge-si-reinsereaza, acelasi motiv ca mai sus.
+    CREATE TABLE IF NOT EXISTS verificari_cantitati_pt (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      proiect_id        INTEGER NOT NULL REFERENCES proiecte(id),
+      activitate        TEXT NOT NULL,
+      cantitate_tinta   REAL NOT NULL,
+      unitate_tinta     TEXT NOT NULL,
+      stare             TEXT NOT NULL,
+      cantitate_deviz   REAL,
+      linii_asociate_json TEXT,
+      motiv             TEXT,
+      creat_la          TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_verificari_cantitati_pt_proiect ON verificari_cantitati_pt(proiect_id);
+
     -- Articole (linii F3, cu pret TOTAL real) din devize vechi castigatoare
     -- (vezi istoricArticole.js) -- diferit de istoric_preturi (acolo,
     -- RESURSE individuale din C6-C9; aici, ARTICOLE complete de deviz, cu
@@ -666,6 +686,29 @@ function salveazaVerificariCompletitudine(proiectId, verificari) {
 const verificariCompletitudinePeProiect = (proiectId) =>
   db.prepare('SELECT * FROM verificari_completitudine WHERE proiect_id = ? ORDER BY id').all(proiectId);
 
+// ─── Verificare cantitati PT (src/verificareCantitatiPT.js, Robot A/B/C/D) ──
+
+/** Sterge-si-reinsereaza, acelasi motiv ca la salveazaVerificariCompletitudine. */
+function salveazaVerificariCantitatiPT(proiectId, comparatii) {
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM verificari_cantitati_pt WHERE proiect_id = ?').run(proiectId);
+    const ins = db.prepare(`INSERT INTO verificari_cantitati_pt
+      (proiect_id, activitate, cantitate_tinta, unitate_tinta, stare, cantitate_deviz, linii_asociate_json, motiv, creat_la)
+      VALUES (?,?,?,?,?,?,?,?,?)`);
+    const acumStamp = acum();
+    for (const c of comparatii) {
+      ins.run(proiectId, c.activitate, c.cantitateTinta, c.unitateTinta, c.stare, c.cantitateDeviz ?? null, JSON.stringify(c.liniiAsociate || []), c.motiv || null, acumStamp);
+    }
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+}
+const verificariCantitatiPTPeProiect = (proiectId) =>
+  db.prepare('SELECT * FROM verificari_cantitati_pt WHERE proiect_id = ? ORDER BY id').all(proiectId);
+
 // ─── Firme ────────────────────────────────────────────────────────────────
 
 function creeazaFirma({ nume, utilizator, email, sare, hash }) {
@@ -752,6 +795,7 @@ module.exports = {
   stergeArticoleIstorice, adaugaArticolIstoric, articoleIstoricePentruCod, cautaArticoleIstoricePrinText,
   stergeResurseAgregate, adaugaResursaAgregata, resurseAgregatePeProiect,
   salveazaVerificariCompletitudine, verificariCompletitudinePeProiect,
+  salveazaVerificariCantitatiPT, verificariCantitatiPTPeProiect,
   creeazaProiectPentruFirma, proiectePeFirma, proiectDupaIdSiFirma,
   salveazaPretCurentFirma, pretCurentFirma, resurseAgregatePeProiectFirma,
   creeazaFirma, firmaDupaEmail, firmaDupaId, toateFirmele, toateFirmeleComplet,

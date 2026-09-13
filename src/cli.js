@@ -470,6 +470,92 @@ async function comandaVerificaCompletitudine(args) {
   }
 }
 
+/**
+ * Robot A+B+C+D (vezi src/verificareCantitatiPT.js) -- verifica daca
+ * CANTITATILE din deviz ajung fata de Proiectul Tehnic, nu doar daca
+ * activitatile exista (asta face deja "verifica-completitudine"). Robotul B
+ * (vedere, per pagina de desen) e costisitor pe documente mari -- arata un
+ * estimat REAL (dintr-o pagina-esantion, nu o cifra inventata) si cere
+ * confirmare explicita inainte sa proceseze restul paginilor.
+ */
+async function comandaVerificaCantitatiPT(args) {
+  const proiectId = Number(args[0]);
+  if (!proiectId) { console.error('Da id-ul proiectului.'); process.exit(1); }
+
+  const proiect = db.proiectDupaId(proiectId);
+  if (!proiect) { console.error(`Proiect inexistent: ${proiectId}`); process.exit(1); }
+  if (!proiect.cod_licitatie) {
+    console.error(`Proiectul ${proiectId} n-are cod de licitatie asociat (proiecte.cod_licitatie) -- `
+      + 'necesar ca sa gaseasca documentele Proiectului Tehnic. Proiectele create prin '
+      + '"importa-licitatie"/"predefineste" de-acum incolo il au automat.');
+    process.exit(1);
+  }
+
+  const verificareCantitatiPT = require('./verificareCantitatiPT');
+  const avertismente = [];
+
+  console.log(`Caut documentele Proiectului Tehnic pentru ${proiect.cod_licitatie}...`);
+  const { documenteText, documenteDesenate } = await verificareCantitatiPT.gasesteDocumentePT(proiect.cod_licitatie, avertismente);
+  console.log(`  ${documenteText.length} document(e) cu piese scrise, ${documenteDesenate.length} document(e) cu piese desenate.`);
+
+  console.log('\nRulez Robotul A (cantitati din piese scrise)...');
+  const cantitatiText = await verificareCantitatiPT.ruleazaRobotA(documenteText, avertismente);
+  console.log(`  ${cantitatiText.length} cantitati gasite.`);
+
+  let cantitatiDesen = [];
+  if (documenteDesenate.length) {
+    console.log('\nEstimez costul Robotului B (o pagina reala, esantion)...');
+    const { esantion, paginiTotale, costEstimatTotal } = await verificareCantitatiPT.estimeazaCostRobotB(documenteDesenate, avertismente);
+    if (!paginiTotale) {
+      console.log('  Niciun document desenat cu pagini de procesat.');
+    } else {
+      console.log(`  Esantion (${esantion.document}, pagina 1): cost real $${esantion.costUsd ?? 'necunoscut'}.`);
+      console.log(`  Total de procesat: ${paginiTotale} pagini${costEstimatTotal != null ? ` -- estimat ~$${costEstimatTotal}` : ' (estimat de cost indisponibil)'}.`);
+
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      const raspuns = (await new Promise((res) => rl.question('  Continui cu restul paginilor? (da/nu): ', res))).trim().toLowerCase();
+      rl.close();
+      if (raspuns === 'da' || raspuns === 'd' || raspuns === 'y' || raspuns === 'yes') {
+        console.log('\nRulez Robotul B (restul paginilor)...');
+        const restul = await verificareCantitatiPT.ruleazaRobotB(documenteDesenate, avertismente, { sarePagina1Din: esantion.document });
+        cantitatiDesen = [...esantion.cantitati, ...restul];
+      } else {
+        console.log('  Sarit -- rulez doar cu esantionul (pagina 1).');
+        cantitatiDesen = esantion.cantitati;
+        avertismente.push(`Robotul B a rulat doar pe pagina-esantion (${esantion.document}, pagina 1) -- restul de ${paginiTotale - 1} pagini n-a fost procesat (sarit de utilizator).`);
+      }
+    }
+  } else {
+    console.log('\nNiciun document cu piese desenate -- Robotul B sarit.');
+  }
+  console.log(`  ${cantitatiDesen.length} cantitati gasite din piese desenate.`);
+
+  console.log('\nReconciliez (Robot C) si compar cu devizul (Robot D)...');
+  const { comparatii, deVerificatManual } = await verificareCantitatiPT.reconciliazaSiCompara(proiectId, cantitatiText, cantitatiDesen, avertismente);
+
+  const suficiente = comparatii.filter((c) => c.stare === 'suficienta');
+  const insuficiente = comparatii.filter((c) => c.stare === 'insuficienta');
+  const faraCorespondent = comparatii.filter((c) => c.stare === 'fara_corespondent');
+  console.log(`\n${suficiente.length} suficiente, ${insuficiente.length} insuficiente, ${faraCorespondent.length} fara corespondent in deviz (din ${comparatii.length} activitati cu cantitate-tinta).\n`);
+
+  if (insuficiente.length) {
+    console.log('CANTITATE INSUFICIENTA:');
+    insuficiente.forEach((c) => console.log(`  ✖ ${c.activitate} -- tinta ${c.cantitateTinta} ${c.unitateTinta}, in deviz ${c.cantitateDeviz} (${c.motiv})`));
+  }
+  if (faraCorespondent.length) {
+    console.log('\nFARA CORESPONDENT in deviz:');
+    faraCorespondent.forEach((c) => console.log(`  ? ${c.activitate} -- tinta ${c.cantitateTinta} ${c.unitateTinta}`));
+  }
+  if (deVerificatManual.length) {
+    console.log('\nDE VERIFICAT MANUAL (unitati incompatibile intre text si desen):');
+    deVerificatManual.forEach((r) => console.log(`  ⚠ ${r.activitate} -- ${r.motivManual}`));
+  }
+  if (avertismente.length) {
+    console.log('\nAvertismente:');
+    avertismente.forEach((a) => console.log('  ' + a));
+  }
+}
+
 /** Importa preturi reale din devize vechi CASTIGATOARE (C6/C7/C8/C9 --
  * materiale/manopera/utilaj/transport), intr-un folder dat, recursiv. Vezi
  * src/istoricDevize.js -- scrie DOAR in istoric_preturi (aditiv), nu
@@ -617,6 +703,7 @@ async function main() {
     case 'importa-licitatie': return comandaImportaLicitatie(args);
     case 'predefineste': return comandaPredefineste(args);
     case 'verifica-completitudine': return comandaVerificaCompletitudine(args);
+    case 'verifica-cantitati-pt': return comandaVerificaCantitatiPT(args);
     case 'importa-preturi-istorice': return comandaImportaPreturiIstorice(args);
     case 'importa-articole-istorice': return comandaImportaArticoleIstorice();
     case 'referinte-istorice': return comandaReferinteIstorice(args);
@@ -629,6 +716,7 @@ async function main() {
   importa-licitatie <idLicitatie> --proiect "Nume"   importa direct dintr-o licitatie (dosar local licitatie-analiza, sau -- daca nu exista -- direct din server/SharePoint prin Core API)
   predefineste <idLicitatie> --proiect "Nume"        genereaza devizul DE LA ZERO (fara liste_cantitati in dosar) -- din scop + documentatie tehnica (aceeasi sursa dubla ca importa-licitatie)
   verifica-completitudine <proiectId>  verifica daca devizul acopera tot ce cere documentatia licitatiei (dupa importa-licitatie/predefineste)
+  verifica-cantitati-pt <proiectId>    verifica daca CANTITATILE din deviz ajung fata de Proiectul Tehnic (Robot A/B/C/D, cere proiecte.cod_licitatie)
   importa-preturi-istorice <folder>    importa preturi reale (C6-C9) din devize vechi CASTIGATOARE, in istoric_preturi
   importa-articole-istorice            importa articolele F3 din devizele castigatoare (prin Core API), in istoric_articole_castigate
   referinte-istorice <proiectId>       cauta, pentru fiecare linie, cel mai apropiat precedent de pret dintr-un deviz vechi castigator (F3)
@@ -642,4 +730,7 @@ async function main() {
   }
 }
 
-module.exports = { main };
+// "gasesteDocumenteLicitatie" e exportata ca sa poata fi refolosita si de
+// verificareCantitatiPT.js (Robot A/B/C/D) -- fara sa duplice logica de
+// rutare local/server (inclusiv fix-ul CLASE_RELEVANTE de mai sus).
+module.exports = { main, gasesteDocumenteLicitatie };

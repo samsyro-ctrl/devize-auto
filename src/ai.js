@@ -93,6 +93,12 @@ function traduCerere(cerere) {
   // engine:'mistral-ocr', vezi ocrIeftin.js) -- nu are echivalent in
   // Anthropic Messages API, deci nu exista un camp Anthropic de tradus.
   if (cerere.plugins) body.plugins = cerere.plugins;
+  // Cere explicit costul REAL al apelului inapoi (OpenRouter nu-l intoarce
+  // implicit) -- vezi "usage" mai jos in cheama(). Folosit azi de
+  // verificareCantitatiPT.js (estimare cost Robot B, dintr-un esantion real,
+  // nu o cifra inventata) -- inofensiv pentru restul apelantilor, care pur si
+  // simplu ignora campul.
+  body.usage = { include: true };
   return body;
 }
 
@@ -171,13 +177,16 @@ async function cheama(cerere, unde = 'necunoscut') {
       // 'max_tokens' primul) sa apuce sa-si foloseasca propria logica de
       // impartire/reincercare pe bucata prea mare -- acea logica exista deja
       // peste tot, dar era de neatins din cauza asta.
-      if (stopReason === 'max_tokens') return { content: [{ type: 'text', text: '' }], stop_reason: stopReason, annotations };
+      if (stopReason === 'max_tokens') return { content: [{ type: 'text', text: '' }], stop_reason: stopReason, annotations, usage: j.usage || null };
       // La OCR (ocrIeftin.js) textul modelului-purtator poate fi gol/trivial
       // in mod normal -- ce conteaza e "annotations", nu raspunsul modelului.
       // Aruncam "raspuns gol" doar daca NICIUNA din cele doua nu exista.
       if (!annotations) throw new Error('Raspuns gol de la OpenRouter (fara choices[0].message.content si fara annotations).');
     }
-    return { content: [{ type: 'text', text: text || '' }], stop_reason: stopReason, annotations };
+    // "usage.cost" -- costul REAL in USD al acestui apel (cerut explicit prin
+    // "usage.include" in traduCerere) -- null daca OpenRouter nu-l intoarce
+    // (ex. cheie fara facturare pe cost activata), niciodata inventat de aici.
+    return { content: [{ type: 'text', text: text || '' }], stop_reason: stopReason, annotations, usage: j.usage || null };
   } catch (e) {
     console.error(`⚠️  Apel Claude esuat (${unde}): ${mesajOmenesc(e)}`);
     e.felAI = felEroare(e);
