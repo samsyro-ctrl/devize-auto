@@ -552,6 +552,46 @@ function comandaReferinteIstorice(args) {
   console.log(`\n${cuReferinta} din ${linii.length} linii au cel putin o referinta istorica gasita.`);
 }
 
+/**
+ * Plan de executie (WBS, resurse, durate, dependinte, drum critic, curba S,
+ * PERT) -- dedus din devizul CURENT al proiectului (linii + descompunere +
+ * preturi), vezi planExecutie.js. Instrument ORIENTATIV, nu cere ca toate
+ * liniile sa fie confirmate (spre deosebire de "export").
+ */
+function comandaPlanExecutie(args) {
+  const proiectId = Number(args[0]);
+  if (!proiectId) { console.error('Da id-ul proiectului.'); process.exit(1); }
+
+  const planExecutie = require('./planExecutie');
+  let rezultat;
+  try {
+    rezultat = planExecutie.construiestePlanExecutie(proiectId);
+  } catch (e) {
+    console.error(e.message);
+    process.exit(1);
+  }
+
+  console.log(`Durata totala estimata: ${rezultat.durataTotalaZile} zile lucratoare\n`);
+  console.log(`Drum critic (${rezultat.drumCritic.length} capitole):`);
+  rezultat.drumCritic.forEach((c) => console.log(`  * ${c}`));
+
+  console.log('\nActivitati (WBS):');
+  for (const a of rezultat.activitati) {
+    const interval = a.esd !== null ? `zilele ${a.esd + 1}-${a.efd}` : 'NEANCORAT (fara faza detectata)';
+    console.log(`\n#${a.id} [${a.fazaNume || 'fara faza'}] ${a.capitol}`);
+    console.log(`  ${interval}${a.peDrumulCritic ? ' -- PE DRUMUL CRITIC' : ''}`);
+    console.log(`  ${a.numarLinii} linii, ${a.oreManopera} ore manopera, durata estimata ${a.durataZile} zile (PERT: ${a.pert.optimist}/${a.pert.realist}/${a.pert.pesimist})`);
+    console.log(`  valoare: ${Math.round(a.valoare.total)} lei (materiale ${Math.round(a.valoare.materiale)}, manopera ${Math.round(a.valoare.manopera)}, utilaj ${Math.round(a.valoare.utilaj)}, transport ${Math.round(a.valoare.transport)})`);
+  }
+
+  console.log(`\nCurba S -- valoare cumulata la ziua ${rezultat.durataTotalaZile}: ${rezultat.curbaS[rezultat.curbaS.length - 1]?.valoareCumulata || 0} lei`);
+
+  if (rezultat.avertismente.length) {
+    console.log(`\n${rezultat.avertismente.length} avertismente:`);
+    rezultat.avertismente.forEach((a) => console.log('  - ' + a));
+  }
+}
+
 function comandaProiecte() {
   const proiecte = db.toateProiectele();
   if (!proiecte.length) { console.log('Niciun proiect inca. Incepe cu "incarca".'); return; }
@@ -578,6 +618,7 @@ async function main() {
     case 'importa-preturi-istorice': return comandaImportaPreturiIstorice(args);
     case 'importa-articole-istorice': return comandaImportaArticoleIstorice();
     case 'referinte-istorice': return comandaReferinteIstorice(args);
+    case 'plan-executie': return comandaPlanExecutie(args);
     case 'proiecte': return comandaProiecte();
     default:
       console.log(`Comenzi disponibile:
@@ -589,6 +630,7 @@ async function main() {
   importa-preturi-istorice <folder>    importa preturi reale (C6-C9) din devize vechi CASTIGATOARE, in istoric_preturi
   importa-articole-istorice            importa articolele F3 din devizele castigatoare (prin Core API), in istoric_articole_castigate
   referinte-istorice <proiectId>       cauta, pentru fiecare linie, cel mai apropiat precedent de pret dintr-un deviz vechi castigator (F3)
+  plan-executie <proiectId>            WBS + durate + dependinte + drum critic + curba S, dedus din devizul curent
   revizuieste <proiectId>              revizuieste liniile nesigure/nepotrivite
   genereaza <proiectId>                descompune liniile confirmate in resurse
   preturi <proiectId> [cale.xlsx]      exporta lista de resurse pentru pretuire
