@@ -25,14 +25,26 @@ function caleProiect(proiectId, ...parti) {
   return path.join(OUTPUT_DIR, 'proiecte', String(proiectId), ...parti);
 }
 
+// Clasele chiar consumate mai departe (importa-licitatie/predefineste) --
+// un dosar local FARA NICIUNA din astea (ex. doar analiza.json/analiza.html
+// de la analiza GO/NO-GO, fara documentele PT propriu-zise) nu e util,
+// indiferent ca folderul exista pe disc. Gasire reala (12.09.2026,
+// SCN1179715): dosarul local exista (licitatia a fost analizata GO/NO-GO),
+// dar contine DOAR analiza -- niciun document PT -- si vechea verificare
+// (doar fs.existsSync) alegea gresit calea locala, gasea 0 documente utile,
+// si esua cu "nimic de importat" in loc sa incerce sursa server, unde
+// documentele chiar exista.
+const CLASE_RELEVANTE = ['liste_cantitati', 'caiet_sarcini', 'fisa_date', 'clarificari'];
+
 /**
  * Documentele unei licitatii (grupate pe clasa, vezi dosarLicitatie.js),
  * indiferent daca au fost deja descarcate in licitatie-analiza (analiza
  * GO/NO-GO facuta) sau exista doar in mirror-ul SharePoint sincronizat pe
  * server (licitatii "IN LUCRU pentru depunere", fara dosar local aici --
- * cazul comun, verificat pe SCN1179408). Local intai (gratuit, fara retea);
- * server doar cand nu exista deloc dosar local -- clar semnalat de fiecare
- * data care sursa a fost folosita, niciodata ghicit tacut.
+ * cazul comun, verificat pe SCN1179408). Local intai (gratuit, fara retea) --
+ * DAR doar daca dosarul local chiar are macar un document dintr-o clasa
+ * relevanta; server oricand local nu exista SAU nu are nimic util -- clar
+ * semnalat de fiecare data care sursa a fost folosita, niciodata ghicit tacut.
  * @param {string} idLicitatie
  * @param {string[]} avertismente
  * @returns {Promise<Object<string, Array<{nume, cale, clasa}>>>}
@@ -43,11 +55,16 @@ async function gasesteDocumenteLicitatie(idLicitatie, avertismente) {
   if (dirLicitatieAnaliza) {
     const caleDosar = path.join(dirLicitatieAnaliza, 'dosare', idLicitatie);
     if (fs.existsSync(caleDosar)) {
-      console.log(`Dosar local gasit (licitatie-analiza): ${caleDosar}`);
-      return dosarLicitatie.documenteDinDosar(caleDosar);
+      const peClasaLocal = dosarLicitatie.documenteDinDosar(caleDosar);
+      const areCevaRelevant = CLASE_RELEVANTE.some((c) => (peClasaLocal[c] || []).length > 0);
+      if (areCevaRelevant) {
+        console.log(`Dosar local gasit (licitatie-analiza): ${caleDosar}`);
+        return peClasaLocal;
+      }
+      console.log(`Dosar local gasit (${caleDosar}), dar fara niciun document relevant (probabil doar analiza GO/NO-GO) -- incerc sursa server...`);
     }
   }
-  console.log(`Niciun dosar local pentru ${idLicitatie} -- incerc sursa server (SharePoint sync, prin Core API)...`);
+  console.log(`Niciun dosar local util pentru ${idLicitatie} -- incerc sursa server (SharePoint sync, prin Core API)...`);
   const dirDescarcare = path.join(OUTPUT_DIR, '_documente-server', idLicitatie);
   return documenteServer.documenteDinServer(idLicitatie, dirDescarcare, avertismente);
 }
@@ -479,6 +496,62 @@ function comandaImportaPreturiIstorice(args) {
   }
 }
 
+/** Importa articolele F3 (cu pret total) din toate proiectele castigatoare
+ * disponibile prin Core API (/api/devize-castigate), in istoric_articole_castigate.
+ * Sterge-si-reinsereaza -- de rulat din nou dupa ce apar proiecte noi in API. */
+async function comandaImportaArticoleIstorice() {
+  const istoricArticole = require('./istoricArticole');
+  const t0 = Date.now();
+  const stare = await istoricArticole.importaArticoleIstorice();
+  console.log(`Durata: ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  console.log(`Proiecte procesate: ${stare.proiecteProcesate}`);
+  console.log(`Fisiere F3 procesate: ${stare.fisiereProcesate}`);
+  console.log(`Articole gasite: ${stare.articoleGasite}`);
+  if (stare.avertismente.length) {
+    console.log(`\n${stare.avertismente.length} avertismente (primele 20):`);
+    stare.avertismente.slice(0, 20).forEach((a) => console.log('  - ' + a));
+  }
+}
+
+/**
+ * Referinte istorice de pret pentru liniile unui proiect -- cauta, pentru
+ * fiecare linie de antemasuratoare, cel mai apropiat articol dintr-un deviz
+ * VECHI CASTIGATOR (Aiud/Deva/Panciu/Vaslui/Zam, vezi istoricArticole.js).
+ * Intai dupa codul de nomenclator (daca linia are unul, de la matching.js --
+ * semnalul cel mai de incredere), altfel prin cautare de text (denumire+
+ * capitol). NU alege un pret automat -- doar arata cel mai relevant precedent
+ * gasit, ca sugestie/validare pentru omul care revizuieste preturile.
+ */
+function comandaReferinteIstorice(args) {
+  const proiectId = Number(args[0]);
+  if (!proiectId) { console.error('Da id-ul proiectului.'); process.exit(1); }
+
+  const linii = db.liniiCuRezolutiiPeProiect(proiectId);
+  if (!linii.length) { console.error(`Proiectul ${proiectId} n-are nicio linie de antemasuratoare.`); process.exit(1); }
+
+  const istoricArticole = require('./istoricArticole');
+  let cuReferinta = 0;
+
+  for (const l of linii) {
+    const referinte = istoricArticole.gasesteReferintaIstorica({ denumire: l.denumire, capitol: l.capitol, cod: l.cod }, 3);
+    console.log(`\n#${l.ordine} [${l.capitol || 'Nespecificat'}] ${l.denumire} -- ${l.cantitate} ${l.unitate}`);
+    if (!referinte.length) {
+      console.log('  (nicio referinta istorica gasita)');
+      continue; // eslint-disable-line no-continue
+    }
+    cuReferinta += 1;
+    const [celMaiBun] = referinte;
+    const potrivireDupaCod = l.cod && celMaiBun.cod === l.cod;
+    console.log(`  -> [${celMaiBun.proiect}]${potrivireDupaCod ? ' (cod exact)' : ' (dupa text)'} ${celMaiBun.cod} -- ${celMaiBun.denumire}`);
+    console.log(`     pret istoric: ${celMaiBun.pret_unitar} lei/${celMaiBun.unitate || '?'} (sursa: ${celMaiBun.document_sursa})`);
+    if (referinte.length > 1) {
+      console.log(`     +${referinte.length - 1} alt(e) precedent(e) gasit(e) (${referinte.slice(1).map((r) => r.proiect).join(', ')}).`);
+    }
+  }
+
+  console.log(`\n${cuReferinta} din ${linii.length} linii au cel putin o referinta istorica gasita.`);
+}
+
 function comandaProiecte() {
   const proiecte = db.toateProiectele();
   if (!proiecte.length) { console.log('Niciun proiect inca. Incepe cu "incarca".'); return; }
@@ -503,6 +576,8 @@ async function main() {
     case 'predefineste': return comandaPredefineste(args);
     case 'verifica-completitudine': return comandaVerificaCompletitudine(args);
     case 'importa-preturi-istorice': return comandaImportaPreturiIstorice(args);
+    case 'importa-articole-istorice': return comandaImportaArticoleIstorice();
+    case 'referinte-istorice': return comandaReferinteIstorice(args);
     case 'proiecte': return comandaProiecte();
     default:
       console.log(`Comenzi disponibile:
@@ -512,6 +587,8 @@ async function main() {
   predefineste <idLicitatie> --proiect "Nume"        genereaza devizul DE LA ZERO (fara liste_cantitati in dosar) -- din scop + documentatie tehnica (aceeasi sursa dubla ca importa-licitatie)
   verifica-completitudine <proiectId>  verifica daca devizul acopera tot ce cere documentatia licitatiei (dupa importa-licitatie/predefineste)
   importa-preturi-istorice <folder>    importa preturi reale (C6-C9) din devize vechi CASTIGATOARE, in istoric_preturi
+  importa-articole-istorice            importa articolele F3 din devizele castigatoare (prin Core API), in istoric_articole_castigate
+  referinte-istorice <proiectId>       cauta, pentru fiecare linie, cel mai apropiat precedent de pret dintr-un deviz vechi castigator (F3)
   revizuieste <proiectId>              revizuieste liniile nesigure/nepotrivite
   genereaza <proiectId>                descompune liniile confirmate in resurse
   preturi <proiectId> [cale.xlsx]      exporta lista de resurse pentru pretuire

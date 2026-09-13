@@ -286,5 +286,14 @@ function importaPreturiIstorice(dirRadacina) {
 }
 
 module.exports = {
-  tipFormular, listeazaFisiere, citesteAntet, extrageResurse, importaPreturiIstorice, aleCandidatContextual,
+  tipFormular,
+  listeazaFisiere,
+  citesteAntet,
+  extrageResurse,
+  importaPreturiIstorice,
+  aleCandidatContextual,
+  // Exportate si pentru istoricArticole.js (parsare F3 -- alta forma de
+  // date, dar aceeasi ancora robusta pe numerotarea oficiala a coloanelor).
+  gasesteNumerotareaColoanelor,
+  parseNumar,
 };

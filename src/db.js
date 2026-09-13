@@ -193,6 +193,30 @@ function deschide(outputDir, numeFisier = 'devize.db') {
       creat_la          TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_verificari_completitudine_proiect ON verificari_completitudine(proiect_id);
+
+    -- Articole (linii F3, cu pret TOTAL real) din devize vechi castigatoare
+    -- (vezi istoricArticole.js) -- diferit de istoric_preturi (acolo,
+    -- RESURSE individuale din C6-C9; aici, ARTICOLE complete de deviz, cu
+    -- capitolul lor, ca sa poata servi ca precedent/referinta pentru o
+    -- linie noua de antemasuratoare, nu doar pentru o resursa atomica).
+    -- Sterge-si-reinsereaza la reimport (vezi importaArticoleIstorice),
+    -- nu se aduna la infinit.
+    CREATE TABLE IF NOT EXISTS istoric_articole_castigate (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      proiect         TEXT NOT NULL,
+      cod             TEXT NOT NULL,
+      denumire        TEXT NOT NULL,
+      capitol         TEXT,
+      unitate         TEXT,
+      cantitate       REAL,
+      pret_unitar     REAL NOT NULL,
+      total           REAL,
+      document_sursa  TEXT NOT NULL,
+      creat_la        TEXT NOT NULL
+    );
+    CREATE VIRTUAL TABLE IF NOT EXISTS istoric_articole_fts USING fts5(
+      denumire, capitol, id UNINDEXED
+    );
   `);
   // "CREATE TABLE IF NOT EXISTS" nu atinge un tabel deja existent -- pe o
   // baza creata inainte de aceasta coloana, ea n-ar aparea niciodata fara
@@ -466,6 +490,63 @@ function colectiiPentruCodNomenclator(cod) {
   return distincte;
 }
 
+// ─── Articole istorice (F3, devize castigatoare) ─────────────────────────────
+
+/** Goleste tot -- reimportul e intotdeauna sterge-si-reinsereaza (nu se aduna
+ * la infinit intre rulari), la fel ca verificari_completitudine. */
+function stergeArticoleIstorice() {
+  db.exec('DELETE FROM istoric_articole_castigate; DELETE FROM istoric_articole_fts;');
+}
+
+function adaugaArticolIstoric({
+  proiect, cod, denumire, capitol, unitate, cantitate, pretUnitar, total, documentSursa,
+}) {
+  if (!proiect || !cod || !denumire) throw new Error('proiect, cod si denumire sunt obligatorii');
+  if (!Number.isFinite(pretUnitar)) throw new Error('pretUnitar trebuie sa fie un numar');
+  const { lastInsertRowid: id } = db.prepare(`
+    INSERT INTO istoric_articole_castigate
+      (proiect, cod, denumire, capitol, unitate, cantitate, pret_unitar, total, document_sursa, creat_la)
+    VALUES (?,?,?,?,?,?,?,?,?,?)
+  `).run(
+    proiect, cod, denumire, capitol || null, unitate || null,
+    cantitate ?? null, pretUnitar, total ?? null, documentSursa, acum(),
+  );
+  db.prepare('INSERT INTO istoric_articole_fts (rowid, denumire, capitol, id) VALUES (?,?,?,?)')
+    .run(id, denumire, capitol || '', id);
+}
+
+/** Articole cu exact acelasi cod, din orice proiect istoric -- cel mai
+ * incredere semnal de potrivire (acelasi cod de nomenclator/articol). */
+const articoleIstoricePentruCod = (cod, limita = 10) => db.prepare(
+  'SELECT * FROM istoric_articole_castigate WHERE cod = ? ORDER BY creat_la DESC LIMIT ?',
+).all(cod, limita);
+
+/** Cautare full-text (denumire+capitol) -- pentru cand nu exista cod de
+ * nomenclator pe linia noua, sau codul nu se gaseste in istoric. Cuvintele
+ * insirate cu OR (nu AND implicit) -- vrem CEL MAI ASEMANATOR articol, nu
+ * unul care sa contina literalmente toate cuvintele; bm25 (rank) claseaza
+ * potrivirile mai bune primele. Cuvintele extrase (nu textul brut) evita si
+ * capcana sintaxei FTS5 (o cratima in text ar insemna "NOT" pentru MATCH). */
+function cautaArticoleIstoricePrinText(text, limita = 10) {
+  if (!db) return [];
+  const cuvinte = String(text || '')
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((c) => c.length >= 3);
+  if (!cuvinte.length) return [];
+  const interogare = cuvinte.map((c) => `"${c.replace(/"/g, '')}"`).join(' OR ');
+  try {
+    return db.prepare(`
+      SELECT a.* FROM istoric_articole_fts f
+      JOIN istoric_articole_castigate a ON a.id = f.id
+      WHERE istoric_articole_fts MATCH ?
+      ORDER BY rank
+      LIMIT ?
+    `).all(interogare, limita);
+  } catch {
+    return []; // interogare FTS invalida -- fara rezultate, nu eroare
+  }
+}
+
 /** Sugestie AUTOMATA (nu auto-aplicare) de cod pentru un furnizor nou-castigator:
  * daca acelasi furnizor a mai fost legat manual ("Aplica la un cod") de un
  * colectie/cod inainte (SUPPLIER_QUOTE in istoric_preturi), e un candidat
@@ -653,6 +734,7 @@ module.exports = {
   salveazaRezolutie, confirmaRezolutie,
   salveazaPretCurent, pretCurent,
   adaugaIstoricPret, adaugaIstoricPretSigur, istoricPreturiPentruArticol, colectiiPentruCodNomenclator, sugestiiPentruFurnizor, TIPURI_SURSA_PRET,
+  stergeArticoleIstorice, adaugaArticolIstoric, articoleIstoricePentruCod, cautaArticoleIstoricePrinText,
   stergeResurseAgregate, adaugaResursaAgregata, resurseAgregatePeProiect,
   salveazaVerificariCompletitudine, verificariCompletitudinePeProiect,
   creeazaProiectPentruFirma, proiectePeFirma, proiectDupaIdSiFirma,
