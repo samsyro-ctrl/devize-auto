@@ -24,16 +24,17 @@ const deviz = require('./src/deviz');
 const bfla = require('./src/bfla');
 const rfq = require('./src/rfq');
 const planExecutie = require('./src/planExecutie');
+const textDocumenteLicitatie = require('./src/textDocumenteLicitatie');
 const serviciiToken = require('./src/servicii-token');
 const { slug } = require('./src/util');
 
 // Acces pe token de serviciu (src/servicii-token.js, SERVICE_TOKENS din .env)
 // -- pentru UNELTE (Core API), nu oameni; panou.js nu are niciun sistem de
 // conturi (e strict intern, ascultand doar pe 127.0.0.1). Un token valid NU
-// deschide toate rutele, doar cele listate aici -- azi doar "plan-executie",
-// ceruta de buildandfix-core (proxy pentru Ofertetehnice). Tipar identic cu
-// RUTE_PENTRU_SERVICII din licitatie-analiza/panou.js.
-const RUTE_PENTRU_SERVICII = new Set(['/api/plan-executie']);
+// deschide toate rutele, doar cele listate aici -- "plan-executie" (Server/
+// Ofertetehnice) si "text-documente" (deduplicare OCR cu Ofertetehnice).
+// Tipar identic cu RUTE_PENTRU_SERVICII din licitatie-analiza/panou.js.
+const RUTE_PENTRU_SERVICII = new Set(['/api/plan-executie', '/api/text-documente']);
 
 const PORT = parseInt(process.env.PANOU_PORT, 10) || 7778;
 const RADACINA = __dirname;
@@ -133,6 +134,27 @@ const server = http.createServer(async (req, res) => {
         return json(res, {
           proiectId: proiect.id, codLicitatie: cod, complet, ...plan,
         });
+      } catch (e) {
+        return json(res, { eroare: e.message }, 422);
+      }
+    }
+
+    // ─── Text documente licitatie (deduplicare OCR cu Ofertetehnice) ───
+    // Pe token de serviciu, la fel ca "plan-executie" -- vezi
+    // src/textDocumenteLicitatie.js. Lucreaza direct pe cod_licitatie, fara
+    // sa ceara un proiect Devize existent -- poate fi apelata chiar inainte
+    // ca noi sa fi importat vreun proiect pentru acea licitatie.
+    if (p === '/api/text-documente' && req.method === 'GET') {
+      const servicu = RUTE_PENTRU_SERVICII.has(p) ? serviciiToken.identificaServiciu(req.headers.authorization) : null;
+      if (!servicu) return json(res, { eroare: 'neautorizat' }, 401);
+
+      const cod = (u.searchParams.get('cod') || '').trim();
+      if (!cod) return json(res, { eroare: 'lipseste parametrul "cod"' }, 400);
+
+      try {
+        const avertismente = [];
+        const documente = await textDocumenteLicitatie.texteDocumenteLicitatie(cod, avertismente);
+        return json(res, { codLicitatie: cod, documente, avertismente });
       } catch (e) {
         return json(res, { eroare: e.message }, 422);
       }

@@ -214,6 +214,22 @@ function deschide(outputDir, numeFisier = 'devize.db') {
     );
     CREATE INDEX IF NOT EXISTS idx_verificari_cantitati_pt_proiect ON verificari_cantitati_pt(proiect_id);
 
+    -- Cache de text (extras/OCR-uit) al documentelor unei licitatii -- vezi
+    -- src/textDocumenteLicitatie.js, expus prin Core API (/api/text-documente)
+    -- ca Ofertetehnice sa nu mai refaca propriul OCR pe ACELEASI fisiere
+    -- fizice (caiet de sarcini/fisa de date) pe care noi le procesam deja.
+    -- NU e legat de un proiect Devize (proiecte.id) -- lucreaza direct pe
+    -- cod_licitatie, ca sa functioneze si inainte ca un proiect sa existe la
+    -- noi. Primul apelant (Devize sau Ofertetehnice) proceseaza si salveaza,
+    -- oricine cere dupa aceea primeste cache-ul, fara sa plateasca din nou.
+    CREATE TABLE IF NOT EXISTS text_ocr_cache (
+      cod_licitatie   TEXT NOT NULL,
+      document_nume   TEXT NOT NULL,
+      text            TEXT NOT NULL,
+      creat_la        TEXT NOT NULL,
+      PRIMARY KEY (cod_licitatie, document_nume)
+    );
+
     -- Articole (linii F3, cu pret TOTAL real) din devize vechi castigatoare
     -- (vezi istoricArticole.js) -- diferit de istoric_preturi (acolo,
     -- RESURSE individuale din C6-C9; aici, ARTICOLE complete de deviz, cu
@@ -709,6 +725,17 @@ function salveazaVerificariCantitatiPT(proiectId, comparatii) {
 const verificariCantitatiPTPeProiect = (proiectId) =>
   db.prepare('SELECT * FROM verificari_cantitati_pt WHERE proiect_id = ? ORDER BY id').all(proiectId);
 
+// ─── Cache text OCR/extras (src/textDocumenteLicitatie.js) ──────────────────
+
+const textDinCacheOcr = (codLicitatie, documentNume) =>
+  db.prepare('SELECT text FROM text_ocr_cache WHERE cod_licitatie = ? AND document_nume = ?').get(codLicitatie, documentNume)?.text ?? null;
+
+function salveazaTextOcrCache(codLicitatie, documentNume, text) {
+  db.prepare(`INSERT INTO text_ocr_cache (cod_licitatie, document_nume, text, creat_la) VALUES (?,?,?,?)
+    ON CONFLICT(cod_licitatie, document_nume) DO UPDATE SET text = excluded.text, creat_la = excluded.creat_la`)
+    .run(codLicitatie, documentNume, text, acum());
+}
+
 // ─── Firme ────────────────────────────────────────────────────────────────
 
 function creeazaFirma({ nume, utilizator, email, sare, hash }) {
@@ -796,6 +823,7 @@ module.exports = {
   stergeResurseAgregate, adaugaResursaAgregata, resurseAgregatePeProiect,
   salveazaVerificariCompletitudine, verificariCompletitudinePeProiect,
   salveazaVerificariCantitatiPT, verificariCantitatiPTPeProiect,
+  textDinCacheOcr, salveazaTextOcrCache,
   creeazaProiectPentruFirma, proiectePeFirma, proiectDupaIdSiFirma,
   salveazaPretCurentFirma, pretCurentFirma, resurseAgregatePeProiectFirma,
   creeazaFirma, firmaDupaEmail, firmaDupaId, toateFirmele, toateFirmeleComplet,
