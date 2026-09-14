@@ -48,6 +48,13 @@ const ECHIVALENTE_UNITATI = {
   buc: 'buc', bucata: 'buc', bucati: 'buc',
   kg: 'kg', kilogram: 'kg', kilograme: 'kg',
   metru: 'm', metri: 'm',
+  // "ml" (metru liniar) -- gasire reala (14.09.2026, SCN1178517, 2 linii de
+  // cablu solar): codul dat exista exact in nomenclator, dar nomenclatorul
+  // foloseste "m", devizul real "ml" -- acelasi tipar ca "tone"/"tona" de
+  // mai sus (verificat pe toate unitatile distincte din toate proiectele
+  // locale: "ml" era singurul gol ramas). In context de deviz, "ml" e
+  // intotdeauna metru liniar, niciodata mililitru.
+  ml: 'm',
   litru: 'litru', litri: 'litru', l: 'litru',
   set: 'set', seturi: 'set',
   sistem: 'sistem', sisteme: 'sistem',
