@@ -218,7 +218,7 @@ function candidatiDupaCodExact(cod) {
 // interogare EXACTA, o stripare gresita produce cel mult "tot negasit",
 // nu un candidat inventat.
 function curataCodDat(codDat) {
-  return codDat
+  const curatat = codDat
     .replace(/(\[\d+\])+$/, '')
     .replace(/-asim$/i, '')
     .replace(/#$/, '')
@@ -226,6 +226,15 @@ function curataCodDat(codDat) {
     .replace(/-\d+$/, '')
     .replace(/\s?\d{1,2}$/, '')
     .trim();
+  // NICIODATA gol -- bug real gasit (14.09.2026): un cod pur numeric scurt
+  // ("12", "01") era sters COMPLET de ultima regula (sufix de 1-2 cifre),
+  // fiindca nu mai ramanea nimic altceva de pastrat. In matching.js insusi
+  // asta era inofensiv ("cod gol" tot pica pe fallback, ca un cod negasit
+  // oricare) -- dar istoricArticole.js (alt apelant, adaugat mai tarziu)
+  // trateaza un cod gol ca eroare fatala, oprind tot fisierul. Mai sigur sa
+  // garantam AICI, o singura data, ca rezultatul nu e niciodata gol -- decat
+  // sa presupunem ce face fiecare apelant cu el.
+  return curatat || codDat;
 }
 
 function alegeMatchCuCod(linie, bflaEntries = []) {
