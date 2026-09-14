@@ -29,6 +29,7 @@ const XLSX = require('xlsx');
 const db = require('./db');
 const devizeCastigate = require('./devizeCastigate');
 const { gasesteNumerotareaColoanelor, parseNumar } = require('./istoricDevize');
+const { curataCodDat } = require('./matching');
 
 const RX_F3 = /-\s*F3\s*-/i;
 
@@ -84,12 +85,12 @@ function extrageArticoleF3(cale) {
     for (let i = indexRand + 1; i < capatSectiune; i += 1) {
       const r = rows[i];
       const primaCelula = String(r[0] || '').trim();
-      const cod = String(r[idxCod] || '').trim();
+      const codBrut = String(r[idxCod] || '').trim();
       const denumireBruta = String(r[idxDenumire] || '').trim();
 
       if (CUVINTE_FOOTER.test(primaCelula) || CUVINTE_FOOTER.test(denumireBruta)) break; // recapitulatie/total -- gata cu sectiunea asta
 
-      if (!cod) continue; // eslint-disable-line no-continue -- sub-descompunere (material:/manopera:/...) sau rand gol, nimic de folosit
+      if (!codBrut) continue; // eslint-disable-line no-continue -- sub-descompunere (material:/manopera:/...) sau rand gol, nimic de folosit
 
       const pretUnitar = parseNumarSauNull(r[idxPret]);
       if (pretUnitar === null || pretUnitar <= 0) {
@@ -100,10 +101,28 @@ function extrageArticoleF3(cale) {
         // fisier real: "1 | Sistem de protectie incendiu | (fara pret)",
         // urmat de articole reale gen "1.1 | EF01B1* | Centrala..."). Un
         // articol real are mereu denumire in coloana urmatoare -- un rand de
-        // capitol, nu (o singura celula ocupata, restul goale).
-        if (!denumireBruta) capitolCurent = cod;
+        // capitol, nu (o singura celula ocupata, restul goale). Codul BRUT,
+        // neschimbat -- un titlu de capitol nu e un cod de nomenclator, nu
+        // trebuie curatat (risc real: un titlu terminat in cifra mica, ex.
+        // "Etapa 2", ar fi mutilat de curataCodDat, gandita pt coduri).
+        if (!denumireBruta) capitolCurent = codBrut;
         continue; // eslint-disable-line no-continue
       }
+
+      // Curatat de adnotarile estimatorului (note de subsol "[1]", "-asim",
+      // "#", "%", sufix de an/varianta) -- DOAR aici, unde codul chiar e
+      // folosit ca un cod de articol (nu ca titlu de capitol, mai sus).
+      // Acelasi tipar real gasit azi in cod_dat (matching.js), confirmat aici
+      // cu exemple identice ("EF01B1*" mentionat mai sus, "TSD19B1[1]"/
+      // "RPSC24A#" vazute pe CHITILA). Fara curatare, codul brut nu s-ar
+      // potrivi NICIODATA exact cu codul curat dintr-o linie de deviz noua
+      // (db.articoleIstoricePentruCod face cautare EXACTA) -- 1.572/37.710
+      // (~4,2%) din randurile deja importate aveau acest zgomot. Sigur de
+      // facut necondiționat aici (spre deosebire de cod_dat, unde curatarea
+      // e doar fallback): tabelul asta e strict informativ (referinta de
+      // pret, niciodata folosit pt auto-confirmare) -- codul brut ramane
+      // oricand recuperabil din fisierul F3 original.
+      const cod = curataCodDat(codBrut);
 
       rezultat.push({
         cod,
