@@ -55,6 +55,11 @@ const ECHIVALENTE_UNITATI = {
   // locale: "ml" era singurul gol ramas). In context de deviz, "ml" e
   // intotdeauna metru liniar, niciodata mililitru.
   ml: 'm',
+  // "m2"/"m3" -- 19 articole reale din nomenclator (verificat direct, colectia
+  // 1999, excavatii specializate) folosesc aceasta forma in loc de "mp"/"mc".
+  // Frecventa joasa, dar fix sigur si ieftin -- fara ambiguitate posibila in
+  // context de deviz (m2/m3 inseamna mereu metru patrat/cub, nu altceva).
+  m2: 'mp', m3: 'mc',
   litru: 'litru', litri: 'litru', l: 'litru',
   set: 'set', seturi: 'set',
   sistem: 'sistem', sisteme: 'sistem',
