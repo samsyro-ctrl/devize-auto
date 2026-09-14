@@ -36,6 +36,41 @@ function caleProiect(proiectId, ...parti) {
 // documentele chiar exista.
 const CLASE_RELEVANTE = ['liste_cantitati', 'caiet_sarcini', 'fisa_date', 'clarificari'];
 
+// Clasele carora li se aplica selectia explicita de la Pasul 2 (panoul
+// Participare, licitatie-analiza) -- vezi aplicaSelectieDocumente. Celelalte
+// (caiet_sarcini/fisa_date/clarificari) raman NEATINSE, indiferent de
+// selectie -- ele nu fac parte din mecanismul de bifare (intotdeauna toate,
+// ca la scopProiect.js).
+const CLASE_FILTRATE_PRIN_SELECTIE = ['liste_cantitati', 'desene'];
+
+/**
+ * Restrange peClasa[clasa] (pt clasele din CLASE_FILTRATE_PRIN_SELECTIE) la
+ * documentele bifate explicit la Pasul 2, DACA exista o selectie ne-goala --
+ * vezi documenteServer.selectiaDocumentelor (fail-open: null/eroare de retea
+ * -> nicio filtrare, comportamentul de azi). O selectie GOALA (dosar gol pe
+ * partea licitatie-analiza) e tratata identic cu "nicio selectie" -- nu
+ * blocheaza importul pentru licitatii unde Cristian n-a ajuns inca la pasul
+ * de bifare (implicitul de pe partea lor e oricum liste_cantitati+desene,
+ * vezi panou.js:calculeazaPasul2 -- gol inseamna genuine "dosar gol", nu
+ * "nimeni n-a bifat inca").
+ */
+async function aplicaSelectieDocumente(peClasa, idLicitatie, avertismente) {
+  const selectie = await documenteServer.selectiaDocumentelor(idLicitatie);
+  if (!selectie || !selectie.documente.length) return peClasa;
+
+  const numeSelectate = new Set(selectie.documente.map((d) => d.nume));
+  const provenienta = selectie.salvatDe ? `bifat de ${selectie.salvatDe}` : 'implicit, nesalvat inca la Pasul 2';
+  for (const clasa of CLASE_FILTRATE_PRIN_SELECTIE) {
+    if (!peClasa[clasa]?.length) continue; // eslint-disable-line no-continue
+    const inainte = peClasa[clasa].length;
+    peClasa[clasa] = peClasa[clasa].filter((d) => numeSelectate.has(d.nume));
+    if (peClasa[clasa].length !== inainte) {
+      avertismente.push(`${clasa}: ${peClasa[clasa].length}/${inainte} documente pastrate, dupa selectia din panoul Participare (${provenienta}).`);
+    }
+  }
+  return peClasa;
+}
+
 /**
  * Documentele unei licitatii (grupate pe clasa, vezi dosarLicitatie.js),
  * indiferent daca au fost deja descarcate in licitatie-analiza (analiza
@@ -45,12 +80,16 @@ const CLASE_RELEVANTE = ['liste_cantitati', 'caiet_sarcini', 'fisa_date', 'clari
  * DAR doar daca dosarul local chiar are macar un document dintr-o clasa
  * relevanta; server oricand local nu exista SAU nu are nimic util -- clar
  * semnalat de fiecare data care sursa a fost folosita, niciodata ghicit tacut.
+ * Selectia de la Pasul 2 (aplicaSelectieDocumente) se aplica LA FEL,
+ * indiferent de sursa -- selectia e o proprietate a licitatiei, nu a felului
+ * in care noi am ajuns la fisierele ei.
  * @param {string} idLicitatie
  * @param {string[]} avertismente
  * @returns {Promise<Object<string, Array<{nume, cale, clasa}>>>}
  * @throws {Error} daca nici local, nici pe server nu se gaseste nimic.
  */
 async function gasesteDocumenteLicitatie(idLicitatie, avertismente) {
+  let peClasa;
   const dirLicitatieAnaliza = process.env.LICITATIE_ANALIZA_DIR;
   if (dirLicitatieAnaliza) {
     const caleDosar = path.join(dirLicitatieAnaliza, 'dosare', idLicitatie);
@@ -59,14 +98,18 @@ async function gasesteDocumenteLicitatie(idLicitatie, avertismente) {
       const areCevaRelevant = CLASE_RELEVANTE.some((c) => (peClasaLocal[c] || []).length > 0);
       if (areCevaRelevant) {
         console.log(`Dosar local gasit (licitatie-analiza): ${caleDosar}`);
-        return peClasaLocal;
+        peClasa = peClasaLocal;
+      } else {
+        console.log(`Dosar local gasit (${caleDosar}), dar fara niciun document relevant (probabil doar analiza GO/NO-GO) -- incerc sursa server...`);
       }
-      console.log(`Dosar local gasit (${caleDosar}), dar fara niciun document relevant (probabil doar analiza GO/NO-GO) -- incerc sursa server...`);
     }
   }
-  console.log(`Niciun dosar local util pentru ${idLicitatie} -- incerc sursa server (SharePoint sync, prin Core API)...`);
-  const dirDescarcare = path.join(OUTPUT_DIR, '_documente-server', idLicitatie);
-  return documenteServer.documenteDinServer(idLicitatie, dirDescarcare, avertismente);
+  if (!peClasa) {
+    console.log(`Niciun dosar local util pentru ${idLicitatie} -- incerc sursa server (SharePoint sync, prin Core API)...`);
+    const dirDescarcare = path.join(OUTPUT_DIR, '_documente-server', idLicitatie);
+    peClasa = await documenteServer.documenteDinServer(idLicitatie, dirDescarcare, avertismente);
+  }
+  return aplicaSelectieDocumente(peClasa, idLicitatie, avertismente);
 }
 
 /**

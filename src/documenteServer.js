@@ -32,9 +32,14 @@ const TOKEN = process.env.CORE_API_TOKEN || null;
 const TIMEOUT_MS = 15000;
 const TIMEOUT_DESCARCARE_MS = 60000; // fisiere PT pot fi mari (zeci de MB)
 
-// Doar clasele chiar consumate de comandaImportaLicitatie/comandaPredefineste
-// (vezi cli.js) merita costul unei descarcari.
-const CLASE_DE_DESCARCAT = new Set(['liste_cantitati', 'caiet_sarcini', 'fisa_date', 'clarificari']);
+// Doar clasele chiar consumate de comandaImportaLicitatie/comandaPredefineste/
+// verificareCantitatiPT.js (vezi cli.js) merita costul unei descarcari.
+// "desene" -- BUG REAL gasit si reparat 14.09.2026: lipsea de-aici, deci orice
+// licitatie sursa-server (fara dosar local, cazul comun) avea .cale nesetat
+// pe piesele desenate -- verificareCantitatiPT.js (Robot B) ar fi cazut pe
+// aproape orice licitatie reala, nu doar pe cele cu dosar local descarcat
+// manual (unde bug-ul nu se manifesta, dosarLicitatie.js seteaza .cale pt tot).
+const CLASE_DE_DESCARCAT = new Set(['liste_cantitati', 'caiet_sarcini', 'fisa_date', 'clarificari', 'desene']);
 
 function normalizeazaCod(cod) {
   return String(cod).trim().toUpperCase();
@@ -105,6 +110,29 @@ async function descarcaFisier(cod, caleRelativa, caleLocala) {
   }
 }
 
+/**
+ * Documentele bifate explicit la Pasul 2 (panoul Participare, licitatie-
+ * analiza) pentru clasele 'liste_cantitati'/'desene' -- ca sa nu procesam
+ * (si sa nu platim AI pe) tot ce se potriveste pe clasa, doar ce a fost
+ * confirmat relevant. FAIL-OPEN, deliberat (acelasi principiu ca bfla.js,
+ * REGULA DE AUR): daca tokenul lipseste, Core API nu raspunde, sau ruta nu
+ * exista inca, intoarce null -- apelantul trateaza null identic cu "nimic
+ * selectat", pastreaza comportamentul actual (toate documentele din clasa),
+ * NU blocheaza importul pentru o eroare de selectie.
+ * @param {string} cod
+ * @returns {Promise<{documente: Array<{nume, clasa}>, salvatDe: string|null}|null>}
+ */
+async function selectiaDocumentelor(cod) {
+  if (!TOKEN) return null;
+  try {
+    const raspuns = await cerereJson(`/api/documente-selectate/${encodeURIComponent(normalizeazaCod(cod))}`, TIMEOUT_MS);
+    const corp = await raspuns.json();
+    return { documente: corp.documente || [], salvatDe: corp.salvat_de || null };
+  } catch {
+    return null;
+  }
+}
+
 /** Nume de fisier local, unic pe dosarul de descarcare (clasa + nume original). */
 function numeLocal(clasa, numeOriginal) {
   return `${clasa}__${numeOriginal}`.replace(/[^A-Za-z0-9_.\-]/g, '_');
@@ -159,4 +187,6 @@ async function documenteDinServer(cod, dirDescarcare, avertismente = []) {
   return peClasa;
 }
 
-module.exports = { documenteDinServer, listaFisiere, descarcaFisier, ACTIV: Boolean(TOKEN) };
+module.exports = {
+  documenteDinServer, listaFisiere, descarcaFisier, selectiaDocumentelor, ACTIV: Boolean(TOKEN),
+};
