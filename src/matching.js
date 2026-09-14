@@ -179,13 +179,17 @@ function candidatiDupaCodExact(cod) {
 // patrate ("EH09XA[1]", "W2H07F1[1][2]" -> "EH09XA"/"W2H07F1", probabil
 // scapate din PDF la extragere), sufixul "-asim" (conventie standard de
 // deviz romanesc pt "asimilat" -- un articol inlocuitor pt unul indisponibil
-// in catalogul folosit de estimator: "EG08B#-asim" -> "EG08B"), si un "#"
-// final (marcaj propriu al estimatorului: "W2I04A#" -> "W2I04A"). Alte
-// sufixe vazute pe acelasi proiect ("%", ">", coduri pur numerice -- probabil
-// coduri de produs ale furnizorului, nu norme de deviz) NU au fost testate
-// la fel de riguros -- nu se curata aici, ramane pe fallback-ul normal.
+// in catalogul folosit de estimator: "EG08B#-asim" -> "EG08B"), un "#" final
+// (marcaj propriu al estimatorului: "W2I04A#" -> "W2I04A"), un "%" final
+// ("RCLP04B%" -> "RCLP04B") si un "-N" final, marcaj de varianta
+// ("W2A16B1-1" -> "W2A16B1"). Alte sufixe vazute pe acelasi proiect (">",
+// coduri pur numerice -- probabil coduri de produs ale furnizorului, nu
+// norme de deviz) NU s-au confirmat la fel de riguros -- nu se curata,
+// raman pe fallback-ul normal. Testat: 10/26 coduri "inexistente" de pe
+// acel proiect real gasesc acum un candidat identificat, restul de 16
+// (sufixe netestate/coduri de produs) raman corect netratate.
 function curataCodDat(codDat) {
-  return codDat.replace(/(\[\d+\])+$/, '').replace(/-asim$/i, '').replace(/#$/, '').trim();
+  return codDat.replace(/(\[\d+\])+$/, '').replace(/-asim$/i, '').replace(/#$/, '').replace(/%$/, '').replace(/-\d+$/, '').trim();
 }
 
 function alegeMatchCuCod(linie, bflaEntries = []) {
