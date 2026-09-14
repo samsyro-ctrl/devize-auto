@@ -41,6 +41,32 @@ function expandeazaPanaLaFrunze(colectie, cod, adancime = 0, avertismente = []) 
     return new Map();
   }
 
+  // O linie poate fi potrivita DIRECT pe o resursa bruta (transport/manopera/
+  // utilaj/material), nu doar pe un articol compus -- gasire reala
+  // (14.09.2026, SCN1178517): linii de transport pur ("TRANSPORTUL RUTIER...
+  // PE DIST. = 20 KM"), cu cod dat de estimator EXACT corect ("TRA01A20"),
+  // care insa e chiar o resursa-frunza (tip=0, TRANSPORT), fara copii
+  // proprii -- fara acest caz special, copiiDescompunere ar intoarce gol
+  // pentru un asemenea cod, iar linia ar iesi cu ZERO resurse, silentios
+  // (devizul ar "uita" complet de acea linie la agregare/pretuire). Aici,
+  // "reteta" e articolul insusi -- 1 unitate din el per unitate ceruta.
+  // NU se aplica la adancime>0 (in interiorul unei retete): acolo, apelul
+  // recursiv (mai jos) e facut STRICT pentru copii deja confirmati compusi
+  // (tip==null) de apelant, deci verificarea de aici e un no-op sigur pentru
+  // ei -- rezolva doar cazul cand INSUSI codul de varf e o resursa bruta.
+  const propriuArticol = rezolvaArticol(colectie, cod);
+  if (propriuArticol && propriuArticol.tip != null) {
+    const rezultatFrunza = new Map([[
+      `${propriuArticol.colectieRezolvata}|${propriuArticol.cod}`,
+      {
+        colectie: propriuArticol.colectieRezolvata, cod: propriuArticol.cod, tip: propriuArticol.tip,
+        unitate: propriuArticol.unitate, descriere: propriuArticol.descriere, cantitatePerUnitate: 1,
+      },
+    ]]);
+    cacheExpandare.set(cheieCache, rezultatFrunza);
+    return rezultatFrunza;
+  }
+
   const rezultat = new Map();
   const copii = db.copiiDescompunere(colectie, cod);
   for (const c of copii) {

@@ -148,12 +148,27 @@ function alegeMatch(linie, bflaEntries = []) {
   return { stare, colectie: c1.colectie, cod: c1.cod, scor: c1.scor, candidati_json: candidatiJson };
 }
 
-/** Potrivirile pentru un cod EXACT (poate exista in mai multe colectii),
- * filtrate la fel ca gasesteCandidati -- doar articole compuse, reale (nu
- * noduri de grupare, nu resurse-frunza). */
+/**
+ * Potrivirile pentru un cod EXACT (poate exista in mai multe colectii).
+ * Spre deosebire de gasesteCandidati (cautare libera dupa denumire, unde
+ * doar articole compuse sunt acceptate -- risc de potrivire fuzzy gresita pe
+ * o resursa bruta), aici codul e DAT explicit de estimator -- daca acel cod
+ * exact e chiar o resursa bruta (transport/manopera/utilaj/material), e o
+ * potrivire valida, NU una de respins. Gasire reala (14.09.2026,
+ * SCN1178517): linii de transport pur, cu cod dat exact corect ("TRA01A20"),
+ * respinse inainte doar pentru ca articolul e "resursa", nu "compus" --
+ * vezi si fix-ul din descompunere.js (expandeazaPanaLaFrunze), necesar ca
+ * o asemenea potrivire sa produca resursa corecta, nu zero, la descompunere.
+ * Nodurile de grupare (cod terminat in "#") raman EXCLUSE indiferent de tip
+ * -- alea nu sunt niciodata un articol real, ci un index BC3.
+ */
 function candidatiDupaCodExact(cod) {
   const bruti = db.cautaDupaCodExact(cod);
-  return bruti.filter((a) => a.tip == null && !a.cod.endsWith('#') && areDescompunere(a.colectie, a.cod));
+  return bruti.filter((a) => {
+    if (a.cod.endsWith('#')) return false;
+    if (a.tip == null) return areDescompunere(a.colectie, a.cod);
+    return true;
+  });
 }
 
 /**
