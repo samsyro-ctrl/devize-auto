@@ -52,6 +52,9 @@ const ETICHETE_ROL_MODEL = {
   MODEL_CANTITATI: 'Devize predefinite — extrage cantități din documentație',
 };
 let cacheModeleOR = { la: 0, lista: [] };
+// Stare intermediara pt verificarea de cantitati (estimare -> finalizare),
+// vezi rutele /api/proiecte/:id/cantitati-pt/* mai jos.
+const CACHE_CANTITATI_PT = new Map();
 
 db.deschide(OUTPUT_DIR);
 
@@ -285,6 +288,80 @@ const server = http.createServer(async (req, res) => {
         referinte: istoricArticole.gasesteReferintaIstorica({ denumire: l.denumire, capitol: l.capitol, cod: l.cod }, 3),
       }));
       return json(res, { rezultate });
+    }
+
+    // ─── Verificare cantitati (Robot A/B/C/D, Proiect Tehnic) -- 2 pasi ───
+    // Pas 1 (estimare): ruleaza Robotul A + gaseste documente desenate +
+    // esantioneaza costul Robotului B (o pagina reala) -- cost modest, fara
+    // gate. Pas 2 (finalizare): omul alege daca ruleaza restul paginilor
+    // (Robotul B, cost real semnalat la pas 1) sau doar cu esantionul --
+    // acelasi principiu ca la CLI (verifica-cantitati-pt), portat pt web.
+    // Starea intermediara (cantitatiText/documenteDesenate/esantion) sta
+    // SERVER-SIDE intre cele doua cereri HTTP -- ca Robotul A (cost real)
+    // sa nu se ruleze de doua ori -- tipar identic cu cacheModeleOR de mai
+    // sus (stare simpla in memorie, un singur proces panou.js).
+    const mCantitatiPT = p.match(/^\/api\/proiecte\/(\d+)\/cantitati-pt$/);
+    if (mCantitatiPT && req.method === 'GET') {
+      const proiectId = Number(mCantitatiPT[1]);
+      const proiect = db.proiectDupaId(proiectId);
+      if (!proiect) return json(res, { eroare: 'proiect inexistent' }, 404);
+      return json(res, { verificari: db.verificariCantitatiPTPeProiect(proiectId) });
+    }
+
+    const mCantitatiPTEstimare = p.match(/^\/api\/proiecte\/(\d+)\/cantitati-pt\/estimare$/);
+    if (mCantitatiPTEstimare && req.method === 'POST') {
+      const proiectId = Number(mCantitatiPTEstimare[1]);
+      const proiect = db.proiectDupaId(proiectId);
+      if (!proiect) return json(res, { eroare: 'proiect inexistent' }, 404);
+      if (!proiect.cod_licitatie) {
+        return json(res, { eroare: 'Proiectul n-are cod de licitatie asociat (proiecte.cod_licitatie) -- necesar ca sa gaseasca documentele Proiectului Tehnic.' }, 422);
+      }
+      try {
+        const verificareCantitatiPT = require('./src/verificareCantitatiPT');
+        const avertismente = [];
+        const { documenteText, documenteDesenate } = await verificareCantitatiPT.gasesteDocumentePT(proiect.cod_licitatie, avertismente);
+        const cantitatiText = await verificareCantitatiPT.ruleazaRobotA(documenteText, avertismente);
+        let estimare = { paginiTotale: 0, esantion: null, costEstimatTotal: null };
+        if (documenteDesenate.length) {
+          estimare = await verificareCantitatiPT.estimeazaCostRobotB(documenteDesenate, avertismente);
+        }
+        CACHE_CANTITATI_PT.set(proiectId, {
+          documenteDesenate, cantitatiText, esantion: estimare.esantion, avertismente: [...avertismente],
+        });
+        return json(res, {
+          documenteText: documenteText.length,
+          documenteDesenate: documenteDesenate.length,
+          cantitatiGasiteText: cantitatiText.length,
+          paginiTotale: estimare.paginiTotale,
+          costEsantion: estimare.esantion?.costUsd ?? null,
+          costEstimatTotal: estimare.costEstimatTotal,
+          avertismente,
+        });
+      } catch (e) {
+        return json(res, { eroare: e.message }, 422);
+      }
+    }
+
+    const mCantitatiPTFinalizeaza = p.match(/^\/api\/proiecte\/(\d+)\/cantitati-pt\/finalizeaza$/);
+    if (mCantitatiPTFinalizeaza && req.method === 'POST') {
+      const proiectId = Number(mCantitatiPTFinalizeaza[1]);
+      const stare = CACHE_CANTITATI_PT.get(proiectId);
+      if (!stare) return json(res, { eroare: 'Nicio estimare in curs pentru acest proiect -- ruleaza intai estimarea.' }, 422);
+      const corp = await citesteCorp(req);
+      try {
+        const verificareCantitatiPT = require('./src/verificareCantitatiPT');
+        const avertismente = [...stare.avertismente];
+        let cantitatiDesen = stare.esantion ? stare.esantion.cantitati : [];
+        if (corp.ruleazaRobotB && stare.documenteDesenate.length) {
+          const restul = await verificareCantitatiPT.ruleazaRobotB(stare.documenteDesenate, avertismente, { sarePagina1Din: stare.esantion?.document });
+          cantitatiDesen = [...cantitatiDesen, ...restul];
+        }
+        const rezultat = await verificareCantitatiPT.reconciliazaSiCompara(proiectId, stare.cantitatiText, cantitatiDesen, avertismente);
+        CACHE_CANTITATI_PT.delete(proiectId);
+        return json(res, { comparatii: rezultat.comparatii, deVerificatManual: rezultat.deVerificatManual, avertismente });
+      } catch (e) {
+        return json(res, { eroare: e.message }, 422);
+      }
     }
 
     // ─── Cautare in nomenclator (revizuire manuala) ───
