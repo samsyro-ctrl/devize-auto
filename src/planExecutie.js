@@ -38,11 +38,30 @@ const TIP_MATERIALE = 3;
 
 // ─── Estimare durata (transparenta, NU o norma validata) ─────────────────────
 
-const ORE_PE_ZI = 8; // schimb standard, uzual in constructii romanesti
-// Marimea implicita a formatiei de lucru, cand nu putem deriva alta -- o
-// singura valoare pentru tot proiectul (v1); de rafinat pe viitor daca se
-// dovedeste nepotrivita (echipe mai mari pe activitati cu volum mare).
-const MARIME_IMPLICITA_ECHIPA = 4;
+// Calibrare REALA (14.09.2026) -- graficul de executie CHIAR depus de RED
+// POWER CONS, castigator pe SCN1178630 (CEF Vadu Lat), are 13 activitati cu
+// durata+echipa+ore-manopera explicite (foaia "1. Grafic de executie",
+// coloanele C7-derivate). Ambele constante de mai jos erau presupuneri "de
+// carte", fara nicio ancorare -- comparate cu cele 13 puncte reale, erau
+// amandoua semnificativ gresite, in aceeasi directie (subestimare):
+//   - ore efective/muncitor/zi: 4.43-7.90, medie 6.20 (nu 8 -- diferenta e
+//     timp real neproductiv: organizare zilnica, conditii meteo, verificari
+//     de siguranta, pe care niciun formular de deviz nu-l separa explicit).
+//   - marime echipa: 1,1,1,1,2,2,2,2,2,2,3,3,4 -- MEDIANA SI MEDIA ambele
+//     exact 2 (nu 4).
+// Impreuna, formula veche subestima durata de aproape 2.5x fata de un
+// proiect real, castigat, deja executat. Ramane o ESTIMARE (n=13, un singur
+// proiect/contractor -- nu o norma de productivitate validata la scara),
+// dar acum ancorata in date reale, nu doar presupunere. 6.5 (usor peste
+// media de 6.2) e o rotunjire deliberat conservatoare, nu spre minimul
+// observat pe activitati foarte tehnice.
+const ORE_PE_ZI = 6.5;
+// Marimea implicita a formatiei de lucru -- 2, confirmat de calibrarea de
+// mai sus (mediana=media=2 pe cele 13 activitati reale). Ramane o singura
+// valoare pentru tot proiectul (v1); de rafinat pe viitor daca se dovedeste
+// nepotrivita pe alt tip de proiect (echipe mai mari pe activitati cu volum
+// mare, gasite azi doar pana la 4 pe acest proiect).
+const MARIME_IMPLICITA_ECHIPA = 2;
 
 function estimeazaDurataZile(oreManopera, marimeEchipa = MARIME_IMPLICITA_ECHIPA) {
   if (!(oreManopera > 0)) return 1; // fara manopera deloc (ex. doar achizitie material) -- 1 zi implicit, semnalat separat
@@ -238,4 +257,5 @@ function construiestePlanExecutie(proiectId, optiuni = {}) {
 
 module.exports = {
   construiestePlanExecutie, agregaPeCapitol, gasesteFaza, estimeazaDurataZile, FAZE_CONSTRUCTIE,
+  ORE_PE_ZI, MARIME_IMPLICITA_ECHIPA,
 };
