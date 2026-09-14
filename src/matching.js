@@ -188,8 +188,29 @@ function candidatiDupaCodExact(cod) {
 // raman pe fallback-ul normal. Testat: 10/26 coduri "inexistente" de pe
 // acel proiect real gasesc acum un candidat identificat, restul de 16
 // (sufixe netestate/coduri de produs) raman corect netratate.
+//
+// Al doilea proiect real testat (14.09.2026, SCN1178517/Sutesti, alt
+// estimator) a scos la iveala un tipar SEPARAT, mult mai frecvent: sufix
+// numeric de 1-2 cifre la final, cu sau fara spatiu desparte -- probabil
+// anul catalogului sursa ("EA01D99" -> "EA01D", gasit in colectia_1999;
+// "ATA12XA 93" -> "ATA12XA", gasit in colectia_1993 -- coincide exact cu
+// anul), dar nu intotdeauna (unele sufixe, ex. "02", nu corespund unui
+// an de colectie cunoscut -- posibil alta conventie, motiv necunoscut).
+// Testat pe un esantion de 67 coduri reale "inexistente" de pe acel
+// proiect: 36 (54%) gasesc un candidat dupa aceasta stripare. Se incearca
+// DOAR daca nimic altceva n-a functionat deja (cod brut + celelalte
+// curatari de mai sus) -- risc scazut: candidatiDupaCodExact ramane o
+// interogare EXACTA, o stripare gresita produce cel mult "tot negasit",
+// nu un candidat inventat.
 function curataCodDat(codDat) {
-  return codDat.replace(/(\[\d+\])+$/, '').replace(/-asim$/i, '').replace(/#$/, '').replace(/%$/, '').replace(/-\d+$/, '').trim();
+  return codDat
+    .replace(/(\[\d+\])+$/, '')
+    .replace(/-asim$/i, '')
+    .replace(/#$/, '')
+    .replace(/%$/, '')
+    .replace(/-\d+$/, '')
+    .replace(/\s?\d{1,2}$/, '')
+    .trim();
 }
 
 function alegeMatchCuCod(linie, bflaEntries = []) {
@@ -241,4 +262,6 @@ function alegeMatchCuCod(linie, bflaEntries = []) {
   };
 }
 
-module.exports = { pregatesteInterogareFts, gasesteCandidati, alegeMatch, alegeMatchCuCod, normalizeazaUnitate };
+module.exports = {
+  pregatesteInterogareFts, gasesteCandidati, alegeMatch, alegeMatchCuCod, normalizeazaUnitate, curataCodDat,
+};
