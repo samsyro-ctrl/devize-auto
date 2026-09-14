@@ -36,7 +36,7 @@ const { slug } = require('./src/util');
 // deschide toate rutele, doar cele listate aici -- "plan-executie" (Server/
 // Ofertetehnice) si "text-documente" (deduplicare OCR cu Ofertetehnice).
 // Tipar identic cu RUTE_PENTRU_SERVICII din licitatie-analiza/panou.js.
-const RUTE_PENTRU_SERVICII = new Set(['/api/plan-executie', '/api/text-documente']);
+const RUTE_PENTRU_SERVICII = new Set(['/api/plan-executie', '/api/text-documente', '/api/proiecte/importa-licitatie']);
 
 const PORT = parseInt(process.env.PANOU_PORT, 10) || 7778;
 const RADACINA = __dirname;
@@ -168,6 +168,43 @@ const server = http.createServer(async (req, res) => {
     // ─── Proiecte ───
     if (p === '/api/proiecte' && req.method === 'GET') {
       return json(res, db.toateProiectele());
+    }
+
+    // ─── Creare automata de proiect dintr-un cod de licitatie ───
+    // Pe token de serviciu -- spre deosebire de celelalte rute pe
+    // RUTE_PENTRU_SERVICII (toate citiri), asta CREEAZA o resursa noua +
+    // cost real AI (extragere linii, scop), declansata de un sistem extern
+    // (Orchestrator), nu de un om. Cerut de Orchestrator (14.09.2026):
+    // dispecerizarea lui presupunea mereu un proiect deja creat manual pe
+    // un cod de licitatie -- pentru un cod nou, /api/plan-executie dadea
+    // mereu 404, la infinit, niciun mecanism nu crea proiectul singur.
+    // IDEMPOTENT: daca exista deja un proiect pe acest cod, NU reimporta
+    // (ar costa AI de pomana si ar crea duplicate) -- intoarce-l pe cel
+    // existent, cu "dejaExistent:true".
+    if (p === '/api/proiecte/importa-licitatie' && req.method === 'POST') {
+      const servicu = RUTE_PENTRU_SERVICII.has(p) ? serviciiToken.identificaServiciu(req.headers.authorization) : null;
+      if (!servicu) return json(res, { eroare: 'neautorizat' }, 401);
+
+      const corp = await citesteCorp(req);
+      const cod = (corp.cod || '').trim();
+      if (!cod) return json(res, { eroare: 'lipseste "cod"' }, 400);
+
+      const existent = db.proiectDupaCodLicitatie(cod);
+      if (existent) return json(res, { proiectId: existent.id, dejaExistent: true });
+
+      try {
+        const cli = require('./src/cli');
+        const rezultat = await cli.importaLicitatieAutomat(cod, corp.nume);
+        return json(res, {
+          proiectId: rezultat.proiectId,
+          dejaExistent: false,
+          documenteGasite: Object.fromEntries(Object.entries(rezultat.peClasa).map(([clasa, docs]) => [clasa, docs.length])),
+          scop: rezultat.scop,
+          avertismente: [...rezultat.avertismenteDocumente, ...rezultat.avertismenteScop],
+        });
+      } catch (e) {
+        return json(res, { eroare: e.message }, 422);
+      }
     }
 
     if (p === '/api/proiecte' && req.method === 'PUT') {

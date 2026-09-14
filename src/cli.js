@@ -337,63 +337,91 @@ async function asambleazaTextScop(peClasa, avertismente) {
 async function comandaImportaLicitatie(args) {
   const idLicitatie = args.find((a) => !a.startsWith('--'));
   const idxNume = args.indexOf('--proiect');
-  const nume = idxNume >= 0 ? args[idxNume + 1] : (idLicitatie ? `Licitatie ${idLicitatie}` : null);
+  const nume = idxNume >= 0 ? args[idxNume + 1] : undefined;
   if (!idLicitatie) { console.error('Da id-ul licitatiei (ex. SCN1177636).'); process.exit(1); }
 
-  const avertismenteDocumente = [];
-  let peClasa;
+  let rezultat;
   try {
-    peClasa = await gasesteDocumenteLicitatie(idLicitatie, avertismenteDocumente);
+    rezultat = await importaLicitatieAutomat(idLicitatie, nume);
   } catch (e) {
     console.error(e.message);
     process.exit(1);
   }
-  if (avertismenteDocumente.length) avertismenteDocumente.forEach((a) => console.log(`⚠️  ${a}`));
 
+  if (rezultat.avertismenteDocumente.length) rezultat.avertismenteDocumente.forEach((a) => console.log(`⚠️  ${a}`));
   console.log(`Documente gasite in dosarul ${idLicitatie}:`);
-  for (const [clasa, docs] of Object.entries(peClasa)) {
+  for (const [clasa, docs] of Object.entries(rezultat.peClasa)) {
     console.log(`  ${clasa}: ${docs.map((d) => d.nume).join(', ')}`);
   }
 
+  console.log(`\nProiect #${rezultat.proiectId} creat.`);
+  if (rezultat.scop) {
+    console.log(`\nProdus: ${rezultat.scop.produs}`);
+    console.log(`Nivel de livrare: ${rezultat.scop.nivelLivrare}`);
+    console.log(`${rezultat.scop.activitatiCount} activitati extrase din documentatie.`);
+  }
+  if (rezultat.avertismenteScop.length) {
+    console.log('\nAvertismente:');
+    rezultat.avertismenteScop.forEach((a) => console.log('  ' + a));
+  }
+  console.log(`\nUrmatorul pas: node index.js verifica-completitudine ${rezultat.proiectId}`);
+}
+
+/**
+ * Miezul comenzii "importa-licitatie", extras ca functie reutilizabila --
+ * apelata si de comandaImportaLicitatie (CLI, mai sus) si de ruta HTTP
+ * POST /api/proiecte/importa-licitatie (panou.js), cerut de Orchestrator
+ * (14.09.2026): dispecerizarea lui presupunea mereu un proiect deja creat
+ * manual pe un cod de licitatie -- pentru un cod nou, netestat, /api/
+ * plan-executie dadea mereu 404, la infinit, niciun mecanism nu crea
+ * proiectul singur.
+ *
+ * NU face console.log/process.exit -- arunca Error pe esec (documente
+ * negasite, nicio lista de cantitati etc.), apelantul decide cum
+ * raporteaza. Extragerea scopului ramane BEST-EFFORT (nu arunca daca
+ * lipseste documentatia de scop) -- proiectul tot se creeaza, doar
+ * "verifica-completitudine" nu va functiona pana nu se completeaza manual,
+ * exact ca la fluxul CLI de dinainte.
+ * @param {string} idLicitatie
+ * @param {string} [numeProiect]
+ * @returns {Promise<{proiectId, peClasa, avertismenteDocumente:string[], scop:{produs,nivelLivrare,activitatiCount}|null, avertismenteScop:string[]}>}
+ */
+async function importaLicitatieAutomat(idLicitatie, numeProiect) {
+  if (!idLicitatie) throw new Error('Da id-ul licitatiei (ex. SCN1177636).');
+  const nume = numeProiect || `Licitatie ${idLicitatie}`;
+
+  const avertismenteDocumente = [];
+  const peClasa = await gasesteDocumenteLicitatie(idLicitatie, avertismenteDocumente);
+
   const listeCantitati = peClasa.liste_cantitati || [];
   if (!listeCantitati.length) {
-    console.error('\nNiciun document clasificat ca "liste_cantitati" (deviz/antemasuratoare) in acest dosar -- nimic de importat.');
-    process.exit(1);
+    throw new Error(`Niciun document clasificat ca "liste_cantitati" (deviz/antemasuratoare) in dosarul ${idLicitatie} -- nimic de importat.`);
   }
   if (listeCantitati.length > 1) {
-    console.log(`\n⚠️  ${listeCantitati.length} documente "liste_cantitati" gasite -- import doar primul (${listeCantitati[0].nume}). Restul, de importat manual daca e cazul.`);
+    avertismenteDocumente.push(`${listeCantitati.length} documente "liste_cantitati" gasite -- import doar primul (${listeCantitati[0].nume}). Restul, de importat manual daca e cazul.`);
   }
 
-  console.log(`\nImport antemasuratoare din: ${listeCantitati[0].nume}`);
   const proiectId = await proceseazaIncarcare([listeCantitati[0].cale, '--proiect', nume], matching.alegeMatchCuCod);
-  if (!proiectId) { console.error('Importul antemasuratorii a esuat.'); process.exit(1); }
+  if (!proiectId) throw new Error('Importul antemasuratorii a esuat.');
   db.seteazaCodLicitatie(proiectId, idLicitatie);
 
   const avertismenteScop = [];
+  let scop = null;
   const { documente: documenteScop, text: textScop } = await asambleazaTextScop(peClasa, avertismenteScop);
   if (!documenteScop.length) {
-    console.log('\n⚠️  Niciun caiet de sarcini/fisa de date/clarificare gasit -- scopul proiectului NU a fost extras, "verifica-completitudine" nu va functiona pana nu-l completezi manual.');
-    return;
-  }
-  console.log(`\nExtrag scopul proiectului din ${documenteScop.length} documente (${documenteScop.map((d) => d.nume).join(', ')})...`);
-  if (!textScop.trim()) {
-    console.log('⚠️  N-am putut extrage text din niciun document de scop -- verifica manual.');
-    if (avertismenteScop.length) avertismenteScop.forEach((a) => console.log('  ' + a));
-    return;
+    avertismenteScop.push('Niciun caiet de sarcini/fisa de date/clarificare gasit -- scopul proiectului NU a fost extras, "verifica-completitudine" nu va functiona pana nu-l completezi manual.');
+  } else if (!textScop.trim()) {
+    avertismenteScop.push('N-am putut extrage text din niciun document de scop -- verifica manual.');
+  } else {
+    const scopProiect = require('./scopProiect');
+    const scopExtras = await scopProiect.extrageScopProiect(textScop, avertismenteScop);
+    db.actualizeazaScopProiect(proiectId, scopExtras);
+    scop = { produs: scopExtras.produs, nivelLivrare: scopExtras.nivel_livrare, activitatiCount: scopExtras.activitati.length };
   }
 
-  const scopProiect = require('./scopProiect');
-  const scop = await scopProiect.extrageScopProiect(textScop, avertismenteScop);
-  db.actualizeazaScopProiect(proiectId, scop);
-
-  console.log(`\nProdus: ${scop.produs}`);
-  console.log(`Nivel de livrare: ${scop.nivel_livrare}`);
-  console.log(`${scop.activitati.length} activitati extrase din documentatie.`);
-  if (avertismenteScop.length) {
-    console.log('\nAvertismente:');
-    avertismenteScop.forEach((a) => console.log('  ' + a));
-  }
-  console.log(`\nUrmatorul pas: node index.js verifica-completitudine ${proiectId}`);
+  return {
+    proiectId, peClasa, avertismenteDocumente, scop, avertismenteScop,
+  };
 }
 
 /**
@@ -776,4 +804,4 @@ async function main() {
 // "gasesteDocumenteLicitatie" e exportata ca sa poata fi refolosita si de
 // verificareCantitatiPT.js (Robot A/B/C/D) -- fara sa duplice logica de
 // rutare local/server (inclusiv fix-ul CLASE_RELEVANTE de mai sus).
-module.exports = { main, gasesteDocumenteLicitatie };
+module.exports = { main, gasesteDocumenteLicitatie, importaLicitatieAutomat };
