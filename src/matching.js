@@ -171,10 +171,40 @@ function candidatiDupaCodExact(cod) {
  *   fallback-ul pe denumire, cand codul dat lipseste sau nu exista.
  * @returns {{stare, colectie, cod, scor, candidati_json, nota}}
  */
+// Estimatorii reali adnoteaza uneori codul dat cu ceva ce NU face parte din
+// codul propriu-zis -- gasire reala (14.09.2026, SCN1178630/CEF Vadu Lat,
+// linii dintr-un deviz castigator real): 7 din 7 cazuri verificate manual
+// (candidatiDupaCodExact interogat direct dupa curatare) au avut codul de
+// baza CHIAR valid in nomenclator: marcaje de nota de subsol intre paranteze
+// patrate ("EH09XA[1]", "W2H07F1[1][2]" -> "EH09XA"/"W2H07F1", probabil
+// scapate din PDF la extragere), sufixul "-asim" (conventie standard de
+// deviz romanesc pt "asimilat" -- un articol inlocuitor pt unul indisponibil
+// in catalogul folosit de estimator: "EG08B#-asim" -> "EG08B"), si un "#"
+// final (marcaj propriu al estimatorului: "W2I04A#" -> "W2I04A"). Alte
+// sufixe vazute pe acelasi proiect ("%", ">", coduri pur numerice -- probabil
+// coduri de produs ale furnizorului, nu norme de deviz) NU au fost testate
+// la fel de riguros -- nu se curata aici, ramane pe fallback-ul normal.
+function curataCodDat(codDat) {
+  return codDat.replace(/(\[\d+\])+$/, '').replace(/-asim$/i, '').replace(/#$/, '').trim();
+}
+
 function alegeMatchCuCod(linie, bflaEntries = []) {
   if (!linie.cod_dat) return alegeMatch(linie, bflaEntries);
 
-  const potriviri = candidatiDupaCodExact(linie.cod_dat);
+  let potriviri = candidatiDupaCodExact(linie.cod_dat);
+  let codFolosit = linie.cod_dat;
+  if (!potriviri.length) {
+    const curatat = curataCodDat(linie.cod_dat);
+    if (curatat && curatat !== linie.cod_dat) {
+      const potririCuratate = candidatiDupaCodExact(curatat);
+      if (potririCuratate.length) { potriviri = potririCuratate; codFolosit = curatat; }
+    }
+  }
+  // Nota, DOAR cand codul folosit pana la urma difera de cel dat -- transparent,
+  // niciodata tacut (omul trebuie sa vada ca a fost o curatare, nu codul exact dat).
+  const notaCuratare = codFolosit !== linie.cod_dat
+    ? `codul dat "${linie.cod_dat}" nu exista exact asa in nomenclator -- folosit "${codFolosit}" (curatat de adnotari precum note de subsol/"asim"/"#"), verifica daca e corect.`
+    : null;
 
   if (!potriviri.length) {
     const fallback = alegeMatch(linie, bflaEntries);
@@ -189,18 +219,21 @@ function alegeMatchCuCod(linie, bflaEntries = []) {
     return {
       stare: 'de_revizuit',
       candidati_json: JSON.stringify(potriviri.slice(0, 5)),
-      nota: `codul dat "${linie.cod_dat}" exista in ${potriviri.length} colectii diferite -- alege colectia corecta.`,
+      nota: notaCuratare || `codul dat "${linie.cod_dat}" exista in ${potriviri.length} colectii diferite -- alege colectia corecta.`,
     };
   }
 
   const [c] = potriviri;
   const unitateCompatibila = c.unitate && normalizeazaUnitate(c.unitate) === normalizeazaUnitate(linie.unitate);
   return {
-    stare: unitateCompatibila ? 'auto' : 'de_revizuit',
+    // O curatare de cod, chiar reusita, ramane "de_revizuit" -- NU auto --
+    // e o presupunere (codul dat nu era exact acela), merita o privire umana,
+    // spre deosebire de o potrivire EXACTA pe codul dat neschimbat.
+    stare: (unitateCompatibila && !notaCuratare) ? 'auto' : 'de_revizuit',
     colectie: c.colectie, cod: c.cod, scor: null,
     candidati_json: JSON.stringify([c]),
-    nota: unitateCompatibila ? null
-      : `codul dat "${linie.cod_dat}" exista, dar unitatea din nomenclator (${c.unitate}) nu se potriveste cu cea din deviz (${linie.unitate}).`,
+    nota: notaCuratare || (unitateCompatibila ? null
+      : `codul dat "${linie.cod_dat}" exista, dar unitatea din nomenclator (${c.unitate}) nu se potriveste cu cea din deviz (${linie.unitate}).`),
   };
 }
 
