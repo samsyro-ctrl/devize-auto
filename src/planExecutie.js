@@ -52,16 +52,29 @@ function estimeazaDurataZile(oreManopera, marimeEchipa = MARIME_IMPLICITA_ECHIPA
 // ─── Faze de constructie (pentru dependinte) -- HEURISTICA, nu regula
 // universala. Ordinea listei conteaza (faza 0 = prima). ────────────────────
 
+// Fix real (14.09.2026, gasit rulind plan-executie pe un proiect real, CEF
+// Vadu Lat/SCN1178630): capitolul "Amenajarea terenului" NU se potrivea cu
+// "amenajare\s+teren" -- articolul hotarat romanesc ("Amenajare" ->
+// "Amenajarea", "teren" -> "terenului") sparge potrivirea EXACT la granita
+// \s+/\s* dintr-o fraza cu mai multe cuvinte (un cuvant simplu, fara granita
+// dupa el, tot se potriveste ca substring -- de-aia intrarile cu un singur
+// cuvant de mai jos (ex. "nivelare", "excavati") erau deja sigure). Efect
+// real: 7 din 9 capitole ale acelui proiect ramaneau "fara faza detectata"
+// -- planul intreg pica la "2 zile" in loc de o durata plauzibila, tacut,
+// fara nicio eroare. Reparat generalizand la radacina cuvantului + \w*
+// pentru FIECARE fraza de mai multe cuvinte (nu doar cea gasita stricata),
+// acelasi risc structural exista si la "zidarie portanta"/"curenti slabi/
+// tari"/"punere in functiune", desi neconfirmate inca pe un caz real.
 const FAZE_CONSTRUCTIE = [
-  { faza: 0, nume: 'organizare de santier', rx: /organizare\s+de\s+santier|amenajare\s+teren|predare[a]?\s+amplasament/i },
+  { faza: 0, nume: 'organizare de santier', rx: /organiz\w*\s+de\s+santier|amenaj\w*\s+teren\w*|predare[a]?\s+amplasament/i },
   { faza: 1, nume: 'terasamente', rx: /terasament|excavati|sapatur|nivelare|decapare|demolar/i },
   { faza: 2, nume: 'fundatii/infrastructura', rx: /fundati|infrastructur/i },
-  { faza: 3, nume: 'rezistenta/structura', rx: /rezistent|structur|suprastructur|beton\s*armat|schelet|zidarie\s*portanta/i },
-  { faza: 4, nume: 'arhitectura/inchideri', rx: /arhitectur|zidarie|pereti(?!\s*portant)|acoperis|invelitoare|tamplarie/i },
-  { faza: 5, nume: 'instalatii', rx: /instalati|electric|sanitar|termic|ventilati|curenti\s*(slabi|tari)|hvac/i },
+  { faza: 3, nume: 'rezistenta/structura', rx: /rezistent|structur|suprastructur|beton\s*armat\w*|schelet|zidari\w*\s*portant\w*/i },
+  { faza: 4, nume: 'arhitectura/inchideri', rx: /arhitectur|zidari\w*|pereti(?!\s*portant)|acoperis|invelitoare|tamplarie/i },
+  { faza: 5, nume: 'instalatii', rx: /instalati|electric|sanitar|termic|ventilati|curenti\w*\s*(slabi\w*|tari\w*)|hvac/i },
   { faza: 6, nume: 'finisaje', rx: /finisaj|zugraveal|pardosel|placaj|vopsitorie/i },
   { faza: 7, nume: 'montaj echipamente/dotari', rx: /montaj|echipament|utilaj\s*tehnologic|dotar/i },
-  { faza: 8, nume: 'receptie/probe', rx: /receptie|probe|punere\s*in\s*functiune|PIF/i },
+  { faza: 8, nume: 'receptie/probe', rx: /receptie|probe|punere\w*\s*in\s*functiun\w*|PIF/i },
 ];
 
 function gasesteFaza(capitol) {
