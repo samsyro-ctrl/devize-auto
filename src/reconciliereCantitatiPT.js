@@ -21,6 +21,19 @@ const { cheama } = require('./ai');
 
 const MODEL = process.env.MODEL_COMPLETITUDINE || 'claude-sonnet-5';
 
+// Reincercare pe erori tranzitorii (retea/aglomerat/timeout) -- tipar identic
+// cu ocrIeftin.js. Gasire reala (14.09.2026, SCN1178517, rulare completa
+// capat-la-capat): pe o lista combinata mare (16 din text + 64 din desene =
+// 80 de activitati), apelul a lovit timeout la 90s -- INAINTE de acest fix,
+// o eroare tranzitorie aici pica intreaga reconciliere (si, in cascada, tot
+// Robotul D, care nu mai are ce compara), desi cererea insasi era valida,
+// doar lenta. O eroare de CONTINUT nu s-ar repara reincercand -- doar
+// retea/aglomerat/timeout sunt reincercabile.
+const PRAG_INCERCARI = 3;
+const INTARZIERE_BAZA_MS = 1500;
+const FELURI_REINCERCABILE = new Set(['retea', 'aglomerat', 'timeout']);
+const asteapta = (ms) => new Promise((rezolva) => { setTimeout(rezolva, ms); });
+
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -123,28 +136,37 @@ async function reconciliazaCantitatiPT(cantitatiText, cantitatiDesen, avertismen
   if (!cantitatiText.length && !cantitatiDesen.length) return [];
 
   let resp;
-  try {
-    resp = await cheama({
-      model: MODEL,
-      rol: 'MODEL_COMPLETITUDINE',
-      // Fiecare intrare reconciliata carata 12 campuri (proveniența completa
-      // din ambele surse) -- 8192 s-a trunchiat deja la un test cu 26 de
-      // activitati (~3 din A + 23 din B), verificat direct.
-      max_tokens: 16384,
-      system: SYSTEM,
-      output_config: { format: { type: 'json_schema', schema: SCHEMA } },
-      messages: [{
-        role: 'user',
-        content: [{
-          type: 'text',
-          text: `Lista A (piese scrise):\n${JSON.stringify(cantitatiText, null, 2)}\n\n`
-            + `Lista B (piese desenate):\n${JSON.stringify(cantitatiDesen, null, 2)}`,
+  for (let incercare = 1; incercare <= PRAG_INCERCARI; incercare += 1) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      resp = await cheama({
+        model: MODEL,
+        rol: 'MODEL_COMPLETITUDINE',
+        // Fiecare intrare reconciliata carata 12 campuri (proveniența completa
+        // din ambele surse) -- 8192 s-a trunchiat deja la un test cu 26 de
+        // activitati (~3 din A + 23 din B), verificat direct.
+        max_tokens: 16384,
+        system: SYSTEM,
+        output_config: { format: { type: 'json_schema', schema: SCHEMA } },
+        messages: [{
+          role: 'user',
+          content: [{
+            type: 'text',
+            text: `Lista A (piese scrise):\n${JSON.stringify(cantitatiText, null, 2)}\n\n`
+              + `Lista B (piese desenate):\n${JSON.stringify(cantitatiDesen, null, 2)}`,
+          }],
         }],
-      }],
-    }, 'reconciliereCantitatiPT');
-  } catch (e) {
-    avertismente.push(`Reconciliere esuata (${e.mesajOmenesc || e.message}).`);
-    return [];
+      }, 'reconciliereCantitatiPT');
+      break;
+    } catch (e) {
+      const reincercabil = FELURI_REINCERCABILE.has(e.felAI) && incercare < PRAG_INCERCARI;
+      if (!reincercabil) {
+        avertismente.push(`Reconciliere esuata (${e.mesajOmenesc || e.message}).`);
+        return [];
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await asteapta(INTARZIERE_BAZA_MS * 2 ** (incercare - 1));
+    }
   }
 
   if (resp.stop_reason === 'max_tokens') {
