@@ -183,6 +183,9 @@ function antet(tabActiv, proiectId, numeProiect) {
     <div class="meniu-i ${tabActiv==='revizuire'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/revizuire')">Revizuire</div>
     <div class="meniu-i ${tabActiv==='preturi'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/preturi')">Prețuire</div>
     <div class="meniu-i ${tabActiv==='deviz'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/deviz')">Deviz</div>
+    <div class="meniu-i ${tabActiv==='completitudine'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/completitudine')">Completitudine</div>
+    <div class="meniu-i ${tabActiv==='executie'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/executie')">Execuție</div>
+    <div class="meniu-i ${tabActiv==='istoric'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/istoric')">Istoric prețuri</div>
     <div class="meniu-proiect">${esc(numeProiect||'')}</div>
   ` : `
     <div class="meniu-i ${tabActiv==='proiecte'?'activ':''}" onclick="navigheaza('/')">Proiecte</div>
@@ -515,6 +518,147 @@ async function paginaDeviz(proiectId) {
     </main>`);
 }
 
+// ─── Pagina: completitudine (Caz A/B -- activitati lipsa/partiale) ─────────
+async function paginaCompletitudine(proiectId) {
+  app(antet('completitudine', proiectId) + `<main><div class="incarcare">Se încarcă...</div></main>`);
+  let proiect, date;
+  try {
+    proiect = (await api(`/api/proiecte/${proiectId}`)).proiect;
+    date = await api(`/api/proiecte/${proiectId}/completitudine`);
+  } catch (e) { return eroareGenerala(e); }
+
+  function randare(stareSpeciala) {
+    if (!date.areScop) {
+      app(antet('completitudine', proiectId, proiect.nume) + `
+        <main><h1>Completitudine</h1>
+        <div class="gol">Proiectul n-are scop extras din documentație (produs/nivel de livrare/activități) --
+        rulează "importa-licitatie" sau completează manual proiecte.scop_json.</div></main>`);
+      return;
+    }
+
+    const v = date.verificari || [];
+    const acoperite = v.filter((x) => x.stare === 'acoperita').length;
+    const partiale = v.filter((x) => x.stare === 'partial');
+    const lipsa = v.filter((x) => x.stare === 'lipsa');
+
+    app(antet('completitudine', proiectId, proiect.nume) + `
+      <main>
+        <div class="titlu-pag">
+          <div><h1>Completitudine</h1><p class="sub" style="margin:0">${esc(date.produs||'')}${date.nivelLivrare ? ' · ' + esc(date.nivelLivrare) : ''}</p></div>
+          <button class="btn primar" ${stareSpeciala==='ruleaza'?'disabled':''} onclick="window.__ruleazaCompletitudine()">
+            ${stareSpeciala==='ruleaza' ? 'Se verifică...' : (v.length ? 'Rulează din nou' : 'Rulează verificarea')}
+          </button>
+        </div>
+        ${stareSpeciala==='eroare' ? `<div class="eroare-banda">${esc(window.__eroareCompletitudine||'')}</div>` : ''}
+        ${!v.length && stareSpeciala!=='ruleaza' ? `<div class="gol">Nicio verificare rulată încă -- apasă "Rulează verificarea" (cost real, un apel AI).</div>` : ''}
+        ${v.length ? `
+          <div class="rezumat">
+            <div class="tile"><b>${acoperite}</b><span>Acoperite</span></div>
+            <div class="tile"><b>${partiale.length}</b><span>Parțiale</span></div>
+            <div class="tile"><b>${lipsa.length}</b><span>Lipsă</span></div>
+          </div>
+          ${lipsa.length ? `<p class="lateral-titlu">Lipsă din deviz</p>${lipsa.map((x) => `
+            <div class="linie-card"><p class="linie-denumire">${esc(x.activitate)}</p>
+            <div class="avertisment">${ic('<path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/>', 15)}${esc(x.detaliu||'')}</div></div>`).join('')}` : ''}
+          ${partiale.length ? `<p class="lateral-titlu">Parțiale</p>${partiale.map((x) => `
+            <div class="linie-card"><p class="linie-denumire">${esc(x.activitate)}</p>
+            <p class="sub" style="margin:0">${esc(x.detaliu||'')}</p></div>`).join('')}` : ''}
+        ` : ''}
+      </main>`);
+  }
+
+  window.__ruleazaCompletitudine = async () => {
+    randare('ruleaza');
+    try {
+      const r = await api(`/api/proiecte/${proiectId}/completitudine`, { method: 'POST' });
+      date = { ...date, verificari: r.verificari, produs: r.produs, nivelLivrare: r.nivel_livrare };
+      randare();
+    } catch (e) {
+      window.__eroareCompletitudine = e.message;
+      randare('eroare');
+    }
+  };
+
+  randare();
+}
+
+// ─── Pagina: plan de executie (WBS/CPM/curba S) -- calcul gratuit, live ────
+async function paginaExecutie(proiectId) {
+  app(antet('executie', proiectId) + `<main><div class="incarcare">Se încarcă...</div></main>`);
+  let proiect, plan;
+  try {
+    proiect = (await api(`/api/proiecte/${proiectId}`)).proiect;
+    plan = await api(`/api/proiecte/${proiectId}/executie`);
+  } catch (e) { return eroareGenerala(e); }
+
+  const activitatiHtml = plan.activitati.map((a) => `
+    <div class="linie-card">
+      <p class="linie-denumire">${esc(a.capitol)} ${a.peDrumulCritic ? '<span class="capitol-chip" style="background:var(--nu-f);color:var(--nu);margin-left:6px">drum critic</span>' : ''}</p>
+      <div class="linie-meta">
+        <span>${a.fazaNume ? esc(a.fazaNume) : 'fără fază detectată'}</span><span>·</span>
+        <span>${a.durataZile} zile ${a.esd != null ? `(zilele ${a.esd+1}-${a.efd})` : '(neancorat)'}</span><span>·</span>
+        <span>${Math.round(a.oreManopera)} ore manoperă</span><span>·</span>
+        <span>${banii(a.valoare.total)} lei</span>
+      </div>
+    </div>`).join('');
+
+  app(antet('executie', proiectId, proiect.nume) + `
+    <main>
+      <h1>Plan de execuție</h1>
+      <p class="sub">WBS + durate + dependințe pe fază de construcție + drum critic -- dedus din devizul curent (linii "auto"/"confirmat" DOAR).</p>
+      <div class="rezumat">
+        <div class="tile"><b>${plan.durataTotalaZile}</b><span>Zile lucrătoare</span></div>
+        <div class="tile"><b>${plan.drumCritic.length}</b><span>Capitole pe drum critic</span></div>
+        <div class="tile"><b>${plan.activitati.length}</b><span>Capitole în plan</span></div>
+      </div>
+      ${plan.avertismente && plan.avertismente.length ? plan.avertismente.map((a) => `<div class="eroare-banda" style="background:var(--poate-f);color:var(--poate)">${esc(a)}</div>`).join('') : ''}
+      ${activitatiHtml}
+    </main>`);
+}
+
+// ─── Pagina: referinte istorice de pret (F3, devize castigatoare) ─────────
+async function paginaIstoric(proiectId) {
+  app(antet('istoric', proiectId) + `<main><div class="incarcare">Se încarcă...</div></main>`);
+  let proiect, date;
+  try {
+    proiect = (await api(`/api/proiecte/${proiectId}`)).proiect;
+    date = await api(`/api/proiecte/${proiectId}/referinte-istorice`);
+  } catch (e) { return eroareGenerala(e); }
+
+  let arataToate = false;
+  function randare() {
+    const toate = date.rezultate;
+    const cuReferinta = toate.filter((r) => r.referinte.length);
+    const vizibile = arataToate ? toate : cuReferinta;
+
+    const randuri = vizibile.map((r) => {
+      const ref = r.referinte[0];
+      return `<div class="linie-card">
+        <p class="linie-denumire">#${r.ordine} ${esc(r.denumire)}</p>
+        <div class="linie-meta"><span>${r.cantitate} ${esc(r.unitate)}</span><span class="capitol-chip">${esc(r.capitol||'Nespecificat')}</span></div>
+        ${ref ? `
+          <div class="rezolvat" style="opacity:1;background:var(--glass-tare);border-radius:10px">
+            ${ic('<path d="M5 13l4 4L19 7"/>', 15)}
+            <b>[${esc(ref.proiect)}] ${esc(ref.denumire)}</b>
+            <span>${ref.pret_unitar} lei/${esc(ref.unitate||'?')}${r.referinte.length>1?` · +${r.referinte.length-1} alt(e)`:''}</span>
+          </div>` : `<p class="sub" style="margin:0">Nicio referință istorică găsită.</p>`}
+      </div>`;
+    }).join('');
+
+    app(antet('istoric', proiectId, proiect.nume) + `
+      <main>
+        <div class="titlu-pag">
+          <div><h1>Istoric prețuri</h1><p class="sub" style="margin:0">${cuReferinta.length}/${toate.length} linii cu precedent găsit (devize câștigătoare, F3)</p></div>
+          <button class="btn" onclick="window.__toggleIstoric()">${arataToate ? 'Arată doar cu referință' : `Arată toate (${toate.length})`}</button>
+        </div>
+        ${vizibile.length ? randuri : '<div class="gol">Nicio linie de arătat.</div>'}
+      </main>`);
+  }
+
+  window.__toggleIstoric = () => { arataToate = !arataToate; randare(); };
+  randare();
+}
+
 // ─── Pagina: setari (model per task + preturi furnizori castigatoare) ──────
 // Doua tab-uri, ca la Administrare din public.html: "Modele AI" (continutul
 // de baza, neschimbat) si "Prețuri furnizori" (doar referinta, citita din
@@ -718,6 +862,9 @@ function redeseneaza() {
     const tab = seg[2] || 'revizuire';
     if (tab === 'preturi') return paginaPreturi(id);
     if (tab === 'deviz') return paginaDeviz(id);
+    if (tab === 'completitudine') return paginaCompletitudine(id);
+    if (tab === 'executie') return paginaExecutie(id);
+    if (tab === 'istoric') return paginaIstoric(id);
     return paginaRevizuire(id);
   }
   return paginaProiecte();

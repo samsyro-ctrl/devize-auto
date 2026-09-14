@@ -24,6 +24,8 @@ const deviz = require('./src/deviz');
 const bfla = require('./src/bfla');
 const rfq = require('./src/rfq');
 const planExecutie = require('./src/planExecutie');
+const completitudine = require('./src/completitudine');
+const istoricArticole = require('./src/istoricArticole');
 const textDocumenteLicitatie = require('./src/textDocumenteLicitatie');
 const serviciiToken = require('./src/servicii-token');
 const { slug } = require('./src/util');
@@ -216,6 +218,73 @@ const server = http.createServer(async (req, res) => {
       const proiect = db.proiectDupaId(proiectId);
       if (!proiect) return json(res, { eroare: 'proiect inexistent' }, 404);
       return json(res, { proiect, linii: db.liniiCuRezolutiiPeProiect(proiectId) });
+    }
+
+    // ─── Completitudine (Caz A/B -- activitati lipsa/partiale din deviz) ───
+    // GET intoarce DOAR ultima verificare salvata (gratuit, fara apel AI) --
+    // panoul afiseaza asta implicit; POST ruleaza din nou (cost real AI),
+    // declansat explicit de un buton, niciodata implicit la simpla vizitare
+    // a tab-ului (acelasi principiu ca la Robotul B din CLI -- costul real
+    // cere o actiune explicita, nu se intampla la incarcarea paginii).
+    const mCompletitudine = p.match(/^\/api\/proiecte\/(\d+)\/completitudine$/);
+    if (mCompletitudine && req.method === 'GET') {
+      const proiectId = Number(mCompletitudine[1]);
+      const proiect = db.proiectDupaId(proiectId);
+      if (!proiect) return json(res, { eroare: 'proiect inexistent' }, 404);
+      let scop = null;
+      try { scop = proiect.scop_json ? JSON.parse(proiect.scop_json) : null; } catch { /* scop lipsa/invalid -- ramane null */ }
+      return json(res, {
+        verificari: db.verificariCompletitudinePeProiect(proiectId),
+        produs: scop?.produs || null,
+        nivelLivrare: scop?.nivel_livrare || null,
+        areScop: !!scop,
+      });
+    }
+    if (mCompletitudine && req.method === 'POST') {
+      const proiectId = Number(mCompletitudine[1]);
+      try {
+        const rezultat = await completitudine.verificaCompletitudine(proiectId);
+        return json(res, rezultat);
+      } catch (e) {
+        return json(res, { eroare: e.message }, 422);
+      }
+    }
+
+    // ─── Plan de executie (WBS/CPM/curba S) -- calcul LIVE, fara apel AI ───
+    // (descompuneLinie e determinist, pretCurent e o simpla citire din cache)
+    // -- niciun cost, deci se poate calcula direct la fiecare GET, fara
+    // separare intre "ultima rulare salvata" si "ruleaza din nou" ca la
+    // completitudine/cantitati-PT.
+    const mExecutie = p.match(/^\/api\/proiecte\/(\d+)\/executie$/);
+    if (mExecutie && req.method === 'GET') {
+      const proiectId = Number(mExecutie[1]);
+      const proiect = db.proiectDupaId(proiectId);
+      if (!proiect) return json(res, { eroare: 'proiect inexistent' }, 404);
+      try {
+        return json(res, planExecutie.construiestePlanExecutie(proiectId));
+      } catch (e) {
+        return json(res, { eroare: e.message }, 422);
+      }
+    }
+
+    // ─── Referinte istorice de pret (F3, devize castigatoare) -- gratuit ───
+    // (cautare locala FTS5/cod exact in istoric_articole_castigate, fara AI).
+    const mReferinte = p.match(/^\/api\/proiecte\/(\d+)\/referinte-istorice$/);
+    if (mReferinte && req.method === 'GET') {
+      const proiectId = Number(mReferinte[1]);
+      const proiect = db.proiectDupaId(proiectId);
+      if (!proiect) return json(res, { eroare: 'proiect inexistent' }, 404);
+      const linii = db.liniiCuRezolutiiPeProiect(proiectId);
+      const rezultate = linii.map((l) => ({
+        linieId: l.id,
+        ordine: l.ordine,
+        denumire: l.denumire,
+        capitol: l.capitol,
+        cantitate: l.cantitate,
+        unitate: l.unitate,
+        referinte: istoricArticole.gasesteReferintaIstorica({ denumire: l.denumire, capitol: l.capitol, cod: l.cod }, 3),
+      }));
+      return json(res, { rezultate });
     }
 
     // ─── Cautare in nomenclator (revizuire manuala) ───
