@@ -25,6 +25,15 @@ function deschide(outputDir, numeFisier = 'devize.db') {
   const { DatabaseSync } = require('node:sqlite');
   const f = path.join(ensureDir(outputDir), numeFisier);
   db = new DatabaseSync(f);
+  // Fara asta, SQLite esueaza IMEDIAT ("database is locked") la orice
+  // coliziune de scriere, in loc sa astepte putin -- gasire reala
+  // (14.09.2026): un import lung (importa-articole-istorice, ~250s, 732
+  // fisiere) a pierdut 2 fisiere exact asa, in timp ce serviciile deja
+  // pornite (devize-auto-panou) foloseau acelasi devize.db. 5s e generos
+  // fata de orice tranzactie individuala de-aici (nici cea mai lunga, BEGIN/
+  // COMMIT pe un lot de linii, nu dureaza remotely atat) -- opreste doar
+  // coliziunile reale, nu ascunde un blocaj adevarat.
+  db.exec('PRAGMA busy_timeout = 5000');
   db.exec(`
     -- ─── Nomenclator (portat din recrutare-bot) ──────────────────────────────
     CREATE TABLE IF NOT EXISTS nomenclator_articole (
