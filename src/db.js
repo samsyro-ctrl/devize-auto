@@ -734,6 +734,23 @@ function salveazaVerificariCantitatiPT(proiectId, comparatii) {
 const verificariCantitatiPTPeProiect = (proiectId) =>
   db.prepare('SELECT * FROM verificari_cantitati_pt WHERE proiect_id = ? ORDER BY id').all(proiectId);
 
+/**
+ * Verificarile de completitudine/cantitati-PT care BLOCHEAZA exportul unui
+ * deviz (decizie Cristian, 15.09.2026, dupa gap-ul g3 semnalat de
+ * Orchestrator: pana acum erau doar avertisment vizual, usor de ratat/
+ * ignorat). Comun intre panou.js (web) si cli.js (comandaExport) -- o
+ * singura sursa de adevar pt ce inseamna "deviz incomplet".
+ * @param {number} proiectId
+ * @returns {{completitudine: Array, cantitati: Array}}
+ */
+function verificariBlocanteExport(proiectId) {
+  const completitudine = verificariCompletitudinePeProiect(proiectId)
+    .filter((v) => v.stare === 'lipsa' || v.stare === 'partial');
+  const cantitati = verificariCantitatiPTPeProiect(proiectId)
+    .filter((v) => v.stare === 'insuficienta' || v.stare === 'fara_corespondent');
+  return { completitudine, cantitati };
+}
+
 // ─── Cache text OCR/extras (src/textDocumenteLicitatie.js) ──────────────────
 
 const textDinCacheOcr = (codLicitatie, documentNume) =>
@@ -832,6 +849,7 @@ module.exports = {
   stergeResurseAgregate, adaugaResursaAgregata, resurseAgregatePeProiect,
   salveazaVerificariCompletitudine, verificariCompletitudinePeProiect,
   salveazaVerificariCantitatiPT, verificariCantitatiPTPeProiect,
+  verificariBlocanteExport,
   textDinCacheOcr, salveazaTextOcrCache,
   creeazaProiectPentruFirma, proiectePeFirma, proiectDupaIdSiFirma,
   salveazaPretCurentFirma, pretCurentFirma, resurseAgregatePeProiectFirma,

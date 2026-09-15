@@ -302,7 +302,21 @@ function comandaExport(args) {
   if (!proiectId) { console.error('Da id-ul proiectului.'); process.exit(1); }
   const proiect = db.proiectDupaId(proiectId);
   if (!proiect) { console.error(`Proiect inexistent: ${proiectId}`); process.exit(1); }
-  const cale = args[1] || caleProiect(proiectId, `deviz-${slug(proiect.nume)}.xlsx`);
+
+  // Aceeasi poarta ca in panou.js (web) -- vezi db.verificariBlocanteExport.
+  if (!args.includes('--forteaza')) {
+    const { completitudine, cantitati } = db.verificariBlocanteExport(proiectId);
+    if (completitudine.length || cantitati.length) {
+      console.error(`Exportul e blocat -- ${completitudine.length} activitati lipsa/partiale, ${cantitati.length} cantitati insuficiente/fara corespondent:`);
+      completitudine.forEach((v) => console.error(`  [completitudine/${v.stare}] ${v.activitate} -- ${v.detaliu || ''}`));
+      cantitati.forEach((v) => console.error(`  [cantitati/${v.stare}] ${v.activitate} -- ${v.motiv || ''}`));
+      console.error('\nRezolva-le, sau exporta oricum cu: --forteaza');
+      process.exit(1);
+    }
+  }
+
+  const pozitionale = args.filter((a) => !a.startsWith('--'));
+  const cale = pozitionale[1] || caleProiect(proiectId, `deviz-${slug(proiect.nume)}.xlsx`);
   try {
     const { avertismente } = deviz.exportaDevizExcel(proiectId, cale);
     console.log(`Deviz exportat:\n  ${cale}`);
@@ -802,7 +816,7 @@ async function main() {
   genereaza <proiectId>                descompune liniile confirmate in resurse
   preturi <proiectId> [cale.xlsx]      exporta lista de resurse pentru pretuire
   incarca-preturi <cale.xlsx>          reincarca preturile completate
-  export <proiectId> [cale.xlsx]       genereaza devizul final
+  export <proiectId> [cale.xlsx] [--forteaza]   genereaza devizul final (blocat daca sunt verificari completitudine/cantitati nerezolvate, --forteaza ocoleste explicit)
   proiecte                             lista proiectelor existente`);
   }
 }

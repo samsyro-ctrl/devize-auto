@@ -499,6 +499,30 @@ const server = http.createServer(async (req, res) => {
       const proiectId = Number(mExport[1]);
       const proiect = db.proiectDupaId(proiectId);
       if (!proiect) return json(res, { eroare: 'proiect inexistent' }, 404);
+
+      // Poarta obligatorie (decizie Cristian, 15.09.2026, dupa gap-ul g3
+      // semnalat de Orchestrator): un deviz cu activitati lipsa/partiale
+      // (completitudine) sau cantitati insuficiente/fara corespondent
+      // (cantitati-PT) NU se mai exporta implicit -- doar avertisment
+      // vizual, ca pana acum, nu mai e destul (poate fi ratat/ignorat).
+      // Ocolire posibila, dar NICIODATA implicita: ?forteaza=1, explicit,
+      // dupa ce omul a vazut lista de mai jos (panou.html cere confirmare).
+      const forteaza = u.searchParams.get('forteaza') === '1';
+      if (!forteaza) {
+        const { completitudine, cantitati } = db.verificariBlocanteExport(proiectId);
+        if (completitudine.length || cantitati.length) {
+          return json(res, {
+            eroare: 'Devizul are verificari de completitudine/cantitati nerezolvate -- exportul e blocat.',
+            blocatDeCompletitudine: completitudine.map((v) => ({ activitate: v.activitate, stare: v.stare, detaliu: v.detaliu })),
+            blocatDeCantitati: cantitati.map((v) => ({
+              activitate: v.activitate, stare: v.stare, motiv: v.motiv,
+              cantitateTinta: v.cantitate_tinta, unitateTinta: v.unitate_tinta, cantitateDeviz: v.cantitate_deviz,
+            })),
+            poateForta: true,
+          }, 409);
+        }
+      }
+
       const cale = caleProiect(proiectId, `deviz-${slug(proiect.nume)}.xlsx`);
       try {
         deviz.exportaDevizExcel(proiectId, cale);

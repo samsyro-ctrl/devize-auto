@@ -174,6 +174,43 @@ async function api(cale, optiuni) {
   return corp;
 }
 
+/** Export deviz -- separat de api() fiindca raspunsul e ori un fisier binar
+ * (200), ori JSON (409 blocat de completitudine/cantitati nerezolvate, cu
+ * lista exacta -- vezi db.verificariBlocanteExport). Poarta obligatorie,
+ * decizie Cristian 15.09.2026 -- inainte era doar avertisment vizual, usor
+ * de ratat. Ocolire posibila (?forteaza=1), dar NICIODATA implicita -- cere
+ * mereu confirmare explicita, cu lista reala afisata, nu o bifa ascunsa. */
+async function exportaDeviz(proiectId, forteaza) {
+  const url = `/api/proiecte/${proiectId}/export${forteaza ? '?forteaza=1' : ''}`;
+  const r = await fetch(url);
+  if (r.status === 409) {
+    const corp = await r.json();
+    const randC = (corp.blocatDeCompletitudine || []).map((v) => `  • [${v.stare}] ${v.activitate}${v.detaliu ? ' -- ' + v.detaliu : ''}`).join('\n');
+    const randQ = (corp.blocatDeCantitati || []).map((v) => `  • [${v.stare}] ${v.activitate}${v.motiv ? ' -- ' + v.motiv : ''}`).join('\n');
+    const mesaj = 'Devizul are verificări nerezolvate:\n\n'
+      + (randC ? `Completitudine:\n${randC}\n\n` : '')
+      + (randQ ? `Cantități:\n${randQ}\n\n` : '')
+      + 'Exporți oricum? (recomandat: rezolvă-le întâi)';
+    if (window.confirm(mesaj)) await exportaDeviz(proiectId, true);
+    return;
+  }
+  if (!r.ok) {
+    const corp = await r.json().catch(() => null);
+    window.alert((corp && corp.eroare) || `Eroare server (${r.status})`);
+    return;
+  }
+  const blob = await r.blob();
+  const dispozitie = r.headers.get('content-disposition') || '';
+  const m = /filename="?([^"]+)"?/.exec(dispozitie);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = m ? m[1] : `deviz-${proiectId}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}
+
 const ic = (cale, marime) => `<svg width="${marime||18}" height="${marime||18}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;flex:none">${cale}</svg>`;
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const banii = (n) => (Number(n) || 0).toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -497,7 +534,7 @@ async function paginaDeviz(proiectId) {
     <main>
       <div class="titlu-pag">
         <div><h1>Deviz final</h1><p class="sub" style="margin:0">${capitole.reduce((s,cp)=>s+cp.linii.length,0)} linii, ${capitole.length} capitole</p></div>
-        <button class="btn primar" onclick="location.href='/api/proiecte/${proiectId}/export'">${ic('<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3"/>')} Exportă Excel</button>
+        <button class="btn primar" onclick="exportaDeviz(${proiectId})">${ic('<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3"/>')} Exportă Excel</button>
       </div>
       ${avertismente && avertismente.length ? `<div class="eroare-banda" style="background:var(--poate-f);color:var(--poate)">${avertismente.length} avertismente la descompunere -- vezi consola serverului.</div>` : ''}
       <div class="grid-deviz">
