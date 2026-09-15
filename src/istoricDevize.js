@@ -47,14 +47,16 @@ function tipFormular(numeFisier) {
 
 const CLASE_CU_RESURSE = new Set(['C6', 'C7', 'C8', 'C9']);
 
-/** Toate fisierele .xlsx dintr-un folder, recursiv, cu tipul lor de formular. */
+/** Toate fisierele .xlsx/.xls dintr-un folder, recursiv, cu tipul lor de
+ * formular (dupa numele fisierului -- null pt fisiere consolidate, vezi
+ * extrageResurseConsolidate mai jos, care le identifica dupa CONTINUT). */
 function listeazaFisiere(dirRadacina) {
   const rezultat = [];
   function recurs(dir) {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const cale = path.join(dir, e.name);
       if (e.isDirectory()) recurs(cale);
-      else if (/\.xlsx$/i.test(e.name)) {
+      else if (/\.xlsx?$/i.test(e.name)) {
         rezultat.push({ cale, nume: e.name, tip: tipFormular(e.name) });
       }
     }
@@ -190,6 +192,97 @@ function extrageResurse(cale, tip) {
   return rezultat;
 }
 
+const RX_FORMULAR_C = /^formular\s*(c[6-9])\b/i;
+
+/** Separa "cod - denumire" (varianta cu liniuta -- gasita pe workbook-uri
+ * CONSOLIDATE, vezi extrageResurseConsolidate) -- diferita de separaCodDenumire
+ * (spatiu simplu, fara liniuta), folosita pe fisierele standalone. Acelasi
+ * tipar gasit azi la F3 pe aceleasi 3 proiecte (istoricArticole.js). */
+function separaCodDenumireCuLiniuta(text) {
+  const curat = String(text || '').trim();
+  // Denumirea poate continua pe mai multe randuri (descrieri lungi, cu \n
+  // incorporat in celula) -- [\s\S]+ (nu .+) ca sa poata traversa newline-uri;
+  // gasit real 15.09.2026: fara asta, orice cod cu descriere pe mai multe
+  // randuri esua silentios pe fallback (tot textul brut ca "cod", denumire
+  // goala) -- cod-ul insusi ramane pe UN singur rand (.+? nu traverseaza \n,
+  // corect -- desparte la prima " - " de pe primul rand, unde chiar sta).
+  const m = /^(.+?)\s-\s([\s\S]+)$/.exec(curat);
+  if (!m) return { cod: curat || null, denumire: '' };
+  return { cod: m[1].trim(), denumire: m[2].trim() };
+}
+
+/**
+ * Extrage resursele C6/C7/C8/C9 dintr-o foaie a unui workbook CONSOLIDAT --
+ * layout FIX, fara rand de numerotare dinamica (spre deosebire de fisierele
+ * standalone, vezi extrageResurse) -- dar indexul BRUT al coloanei coincide
+ * chiar cu numarul oficial din SCHEMA_RESURSE (verificat pe date reale,
+ * 15.09.2026, cu formula cantitate x pret = total pe C6/C7/C8, respectiv
+ * tone x km x tarif = total pe C9) -- reutilizam SCHEMA_RESURSE neschimbat,
+ * doar indexam direct dupa numarul oficial, fara harta dedusa dintr-un rand.
+ */
+function extrageResurseDinFoaieConsolidate(rows, tip) {
+  const schema = SCHEMA_RESURSE[tip];
+  const idxDenumire = Number(schema.denumire);
+  const idxCantitate = schema.cantitate !== null ? Number(schema.cantitate) : null;
+  const idxPret = Number(schema.pretUnitar);
+  const idxFurnizor = schema.furnizor !== null ? Number(schema.furnizor) : null;
+  // U.M. e coloana proprie DOAR la C6 (index 2, confirmat real) -- la fel ca
+  // in formatul standalone (gasesteColoanaUM), C7/C8/C9 n-au U.M. explicit.
+  const idxUM = tip === 'C6' ? 2 : null;
+
+  const rezultat = [];
+  for (const r of rows) {
+    const primaCelula = String(r[0] || '').trim();
+    if (!/^\d+$/.test(primaCelula)) continue; // eslint-disable-line no-continue -- titlu formular/footer ("TOTAL Materiale" etc.), nu resursa
+    const denumireBruta = String(r[idxDenumire] || '').trim();
+    if (!denumireBruta) continue; // eslint-disable-line no-continue
+
+    const { cod, denumire } = separaCodDenumireCuLiniuta(denumireBruta);
+    const pretUnitar = parseNumar(r[idxPret]);
+    if (!cod || pretUnitar === null || pretUnitar <= 0) continue; // eslint-disable-line no-continue
+
+    rezultat.push({
+      cod,
+      denumire,
+      unitate: idxUM !== null ? (String(r[idxUM] || '').trim() || null) : null,
+      cantitate: idxCantitate !== null ? parseNumar(r[idxCantitate]) : null,
+      pretUnitar,
+      furnizor: idxFurnizor !== null ? (String(r[idxFurnizor] || '').trim() || null) : null,
+      tip,
+    });
+  }
+  return rezultat;
+}
+
+/**
+ * Resursele C6/C7/C8/C9 dintr-un fisier .xls/.xlsx CONSOLIDAT -- un singur
+ * workbook cu toate formularele (F1/F2/F3/F4/C6-C9) ca foi separate, gasit
+ * real 15.09.2026 pe aceleasi 3 proiecte ca la F3 (COLEGIUL GHEORGHE
+ * VRANCEANU BACAU, TRANSPORT PUBLIC ROMAN, TRANSPORT PUBLIC ONESTI).
+ *
+ * Foile C6-C9 NU se identifica dupa numele fisierului (tipFormular esueaza,
+ * de-aia ajunge aici) si NICI dupa numele foii (Excel trunchiaza la 31
+ * caractere -- vezi motivatia completa in istoricArticole.js
+ * extrageArticoleF3DinFoiConsolidate) -- semnal robust: celula A1 incepe
+ * mereu cu "Formular C6"/"C7"/"C8"/"C9".
+ * @param {string} cale -- fisier local (deja descarcat/pe disc).
+ * @returns {Array<{cod, denumire, unitate, cantitate, pretUnitar, furnizor, tip}>}
+ */
+function extrageResurseConsolidate(cale) {
+  const wb = XLSX.readFile(cale);
+  let rezultat = [];
+  for (const nume of wb.SheetNames) {
+    const foaie = wb.Sheets[nume];
+    const a1 = foaie.A1 ? String(foaie.A1.v || '').trim() : '';
+    const m = RX_FORMULAR_C.exec(a1);
+    if (!m) continue; // eslint-disable-line no-continue -- nu e o foaie C6-C9 (F1/F2/F3/F4, sau alta foaie irelevanta)
+    const tip = m[1].toUpperCase();
+    const rows = XLSX.utils.sheet_to_json(foaie, { header: 1, defval: '', raw: false });
+    rezultat = rezultat.concat(extrageResurseDinFoaieConsolidate(rows, tip));
+  }
+  return rezultat;
+}
+
 // Un cod poate exista in nomenclator de doua ori cu descrieri GENUIN diferite
 // (nu doar variatii de scriere) -- gasit real (12.09.2026): coduri "200000XX"
 // desemneaza cand o MESERIE (colectia norme_munca sau alta), cand un UTILAJ,
@@ -224,7 +317,7 @@ function aleCandidatContextual(candidati, tip) {
  * @returns {{fisiereProcesate, randuriGasite, potriviteExact, rezolvatePrinContext, potriviteAmbiguu, nepotrivite}}
  */
 function importaPreturiIstorice(dirRadacina) {
-  const fisiere = listeazaFisiere(dirRadacina).filter((f) => CLASE_CU_RESURSE.has(f.tip));
+  const toate = listeazaFisiere(dirRadacina);
   const stare = {
     fisiereProcesate: 0,
     randuriGasite: 0,
@@ -235,18 +328,8 @@ function importaPreturiIstorice(dirRadacina) {
     avertismente: [],
   };
 
-  for (const f of fisiere) {
-    const caleRelativa = path.relative(dirRadacina, f.cale);
-    let resurse;
-    try {
-      resurse = extrageResurse(f.cale, f.tip);
-    } catch (e) {
-      stare.avertismente.push(`${caleRelativa}: citire esuata (${e.message}).`);
-      continue; // eslint-disable-line no-continue
-    }
-    stare.fisiereProcesate += 1;
+  function proceseazaResurse(resurse, caleRelativa) {
     stare.randuriGasite += resurse.length;
-
     for (const r of resurse) {
       const candidati = db.colectiiPentruCodNomenclator(r.cod);
       let colectie;
@@ -257,7 +340,7 @@ function importaPreturiIstorice(dirRadacina) {
         colectie = candidati[0].colectie;
         stare.potriviteExact += 1;
       } else {
-        const alesPrinContext = aleCandidatContextual(candidati, f.tip);
+        const alesPrinContext = aleCandidatContextual(candidati, r.tip);
         if (alesPrinContext) {
           colectie = alesPrinContext.colectie;
           stare.rezolvatePrinContext += 1;
@@ -282,6 +365,52 @@ function importaPreturiIstorice(dirRadacina) {
     }
   }
 
+  // Fisierele standalone (tip cunoscut dupa numele fisierului) -- cazul
+  // obisnuit, neschimbat.
+  const fisiereStandalone = toate.filter((f) => CLASE_CU_RESURSE.has(f.tip));
+  for (const f of fisiereStandalone) {
+    const caleRelativa = path.relative(dirRadacina, f.cale);
+    let resurse;
+    try {
+      resurse = extrageResurse(f.cale, f.tip).map((r) => ({ ...r, tip: f.tip }));
+    } catch (e) {
+      stare.avertismente.push(`${caleRelativa}: citire esuata (${e.message}).`);
+      continue; // eslint-disable-line no-continue
+    }
+    stare.fisiereProcesate += 1;
+    proceseazaResurse(resurse, caleRelativa);
+  }
+
+  // Fisiere consolidate (C6-C9 ca foi ale unui singur workbook, gasit real
+  // 15.09.2026 -- vezi extrageResurseConsolidate). Incercate DOAR pt
+  // subfolderele de proiect care n-au avut NICIUN fisier standalone -- ca sa
+  // nu deschidem inutil sutele de fisiere F1/F2/F3/desene irelevante din
+  // proiectele care deja merg prin calea normala (AIUD/DEVA au 1000+ fisiere
+  // fara legatura). Grupare pe primul segment de cale (folderul de proiect),
+  // nu pe intreg apelul -- robust si la o rulare viitoare pe intreaga arhiva
+  // deodata, nu doar pe un singur folder de proiect cum rulam azi.
+  const foldereCuStandalone = new Set(
+    fisiereStandalone.map((f) => path.relative(dirRadacina, f.cale).split(path.sep)[0]),
+  );
+  const fisiereNeclasificate = toate.filter((f) => !f.tip);
+  for (const f of fisiereNeclasificate) {
+    const caleRelativa = path.relative(dirRadacina, f.cale);
+    const folderProiect = caleRelativa.split(path.sep)[0];
+    if (foldereCuStandalone.has(folderProiect)) continue; // eslint-disable-line no-continue -- proiect deja acoperit de calea standalone
+
+    let resurse;
+    try {
+      resurse = extrageResurseConsolidate(f.cale);
+    } catch (e) {
+      stare.avertismente.push(`${caleRelativa}: citire esuata (${e.message}).`);
+      continue; // eslint-disable-line no-continue
+    }
+    if (!resurse.length) continue; // eslint-disable-line no-continue -- fisier irelevant (fara nicio foaie C6-C9), normal, nu-i eroare
+
+    stare.fisiereProcesate += 1;
+    proceseazaResurse(resurse, caleRelativa);
+  }
+
   return stare;
 }
 
@@ -290,6 +419,7 @@ module.exports = {
   listeazaFisiere,
   citesteAntet,
   extrageResurse,
+  extrageResurseConsolidate,
   importaPreturiIstorice,
   aleCandidatContextual,
   // Exportate si pentru istoricArticole.js (parsare F3 -- alta forma de

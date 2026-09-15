@@ -181,7 +181,12 @@ function extrageArticoleFormatFix(rows) {
     }
     if (!codDenumire) continue; // eslint-disable-line no-continue -- pret dar fara cod/denumire, neasteptat
 
-    const m = /^(.+?)\s-\s(.+)$/.exec(codDenumire);
+    // [\s\S]+ (nu .+) pe partea de denumire -- poate continua pe mai multe
+    // randuri (descrieri lungi, \n incorporat in celula); fara asta, orice
+    // cod cu descriere multi-linie esua silentios pe fallback (tot textul
+    // brut ca "cod", denumire goala) -- gasit real 15.09.2026, 135 randuri
+    // afectate pe cele 3 proiecte consolidate.
+    const m = /^(.+?)\s-\s([\s\S]+)$/.exec(codDenumire);
     const codBrut = m ? m[1].trim() : codDenumire;
     const cod = curataCodDat(codBrut);
 
