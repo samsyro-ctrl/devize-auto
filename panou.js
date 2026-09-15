@@ -36,7 +36,7 @@ const { slug } = require('./src/util');
 // deschide toate rutele, doar cele listate aici -- "plan-executie" (Server/
 // Ofertetehnice) si "text-documente" (deduplicare OCR cu Ofertetehnice).
 // Tipar identic cu RUTE_PENTRU_SERVICII din licitatie-analiza/panou.js.
-const RUTE_PENTRU_SERVICII = new Set(['/api/plan-executie', '/api/text-documente', '/api/proiecte/importa-licitatie']);
+const RUTE_PENTRU_SERVICII = new Set(['/api/plan-executie', '/api/text-documente', '/api/proiecte/importa-licitatie', '/api/deviz-financiar']);
 
 const PORT = parseInt(process.env.PANOU_PORT, 10) || 7778;
 const RADACINA = __dirname;
@@ -142,6 +142,56 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         return json(res, { eroare: e.message }, 422);
       }
+    }
+
+    // ─── Deviz financiar descarcabil (Excel), pe cod de licitatie ───
+    // Pe token de serviciu, la fel ca plan-executie/text-documente -- cerut
+    // de Licitatii (g4, pachetul final de depus, 15.09.2026), clarificare:
+    // plan-executie (mai sus) e INPUT pentru Ofertetehnice (WBS/durate),
+    // NU documentul "deviz financiar" vizibil omului -- acela e exportul
+    // Excel real (deviz.exportaDevizExcel), exact fisierul pe care omul il
+    // descarca din panou.html (buton "Exporta Excel").
+    // Aceeasi poarta obligatorie de completitudine/cantitati ca la exportul
+    // din panou (vezi mai jos, /api/proiecte/:id/export) -- un pachet final
+    // nu trebuie sa includa tacut un deviz incomplet; ?forteaza=1 ramane
+    // posibil (Licitatii/Orchestrator decid daca ocolesc), dar niciodata
+    // implicit.
+    if (p === '/api/deviz-financiar' && req.method === 'GET') {
+      const servicu = RUTE_PENTRU_SERVICII.has(p) ? serviciiToken.identificaServiciu(req.headers.authorization) : null;
+      if (!servicu) return json(res, { eroare: 'neautorizat' }, 401);
+
+      const cod = (u.searchParams.get('cod') || '').trim();
+      if (!cod) return json(res, { eroare: 'lipseste parametrul "cod"' }, 400);
+      const proiect = db.proiectDupaCodLicitatie(cod);
+      if (!proiect) return json(res, { eroare: `niciun proiect gasit pentru codul de licitatie "${cod}"` }, 404);
+
+      const forteaza = u.searchParams.get('forteaza') === '1';
+      if (!forteaza) {
+        const { completitudine, cantitati } = db.verificariBlocanteExport(proiect.id);
+        if (completitudine.length || cantitati.length) {
+          return json(res, {
+            eroare: 'Devizul are verificari de completitudine/cantitati nerezolvate -- exportul e blocat.',
+            blocatDeCompletitudine: completitudine.map((v) => ({ activitate: v.activitate, stare: v.stare, detaliu: v.detaliu })),
+            blocatDeCantitati: cantitati.map((v) => ({
+              activitate: v.activitate, stare: v.stare, motiv: v.motiv,
+              cantitateTinta: v.cantitate_tinta, unitateTinta: v.unitate_tinta, cantitateDeviz: v.cantitate_deviz,
+            })),
+            poateForta: true,
+          }, 409);
+        }
+      }
+
+      const cale = caleProiect(proiect.id, `deviz-${slug(proiect.nume)}.xlsx`);
+      try {
+        deviz.exportaDevizExcel(proiect.id, cale);
+      } catch (e) {
+        return json(res, { eroare: e.message }, 422);
+      }
+      res.writeHead(200, {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="${path.basename(cale)}"`,
+      });
+      return fs.createReadStream(cale).pipe(res);
     }
 
     // ─── Text documente licitatie (deduplicare OCR cu Ofertetehnice) ───
