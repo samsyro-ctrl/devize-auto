@@ -123,25 +123,31 @@ async function proceseazaIncarcare(args, alegeMatchFn) {
   const idxNume = args.indexOf('--proiect');
   const nume = idxNume >= 0 ? args[idxNume + 1] : (fisier ? path.basename(fisier) : null);
 
+  // NU process.exit() aici -- proceseazaIncarcare e apelata si din
+  // importaLicitatieAutomat (deci din procesul LUNG-VIU al lui panou.js,
+  // nu doar din CLI-ul de o singura rulare). Un process.exit() de aici
+  // omoara tot serviciul web, nu doar cererea curenta -- gasit real
+  // 15.09.2026: SCN1177707 (0 linii gasite in document) a crapat
+  // devize-auto-panou de 5 ori la rand, systemd l-a tot repornit, fiecare
+  // apel extern a vazut "fetch failed" in loc de un raspuns de eroare
+  // curat. Aruncam Error in schimb -- main() din index.js (CLI) o prinde
+  // si oricum face process.exit(1), comportament CLI neschimbat; panou.js
+  // (web) o prinde in try/catch si raspunde 422, fara sa cada.
   if (!fisier || !fs.existsSync(fisier)) {
-    console.error('Da calea catre fisier (Excel/PDF/Word).');
-    process.exit(1);
+    throw new Error('Da calea catre fisier (Excel/PDF/Word).');
   }
 
   const avertismente = [];
   console.log(`Extrag text din ${path.basename(fisier)}...`);
   const text = await extract.textDinFisier({ nume: path.basename(fisier), cale: fisier }, avertismente);
   if (!text) {
-    console.error('N-am putut extrage text din fisier.');
-    avertismente.forEach((a) => console.error('  ' + a));
-    process.exit(1);
+    throw new Error(['N-am putut extrage text din fisier.', ...avertismente].join(' '));
   }
 
   console.log('Extrag liniile (Claude)...');
   const linii = await antemasuratoare.extrageLiniiAntemasuratoare(text, avertismente);
   if (!linii.length) {
-    console.error('Nicio linie gasita in document.');
-    process.exit(1);
+    throw new Error('Nicio linie gasita in document.');
   }
 
   const proiectId = db.creeazaProiect(nume, fisier);
