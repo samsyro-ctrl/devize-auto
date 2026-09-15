@@ -57,14 +57,12 @@ function toateNumerotarile(rows) {
 const CUVINTE_FOOTER = /^procent$|^cheltuieli\s+directe|^total\b|^recapitulatie/i;
 
 /**
- * Extrage articolele (linii F3, cu pret TOTAL) dintr-un fisier .xlsx.
- * @param {string} cale -- fisier local (deja descarcat).
- * @returns {Array<{cod, denumire, capitol, unitate, cantitate, pretUnitar, total}>}
+ * Extrage articolele (linii F3, cu pret TOTAL) dintr-un set de randuri deja
+ * incarcate (o singura foaie). Extras din extrageArticoleF3 ca sa poata fi
+ * refolosit si pe foi individuale dintr-un workbook consolidat (vezi
+ * extrageArticoleF3DinFoiConsolidate mai jos).
  */
-function extrageArticoleF3(cale) {
-  const wb = XLSX.readFile(cale);
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
+function extrageArticoleDinFoaie(rows) {
   const numerotari = toateNumerotarile(rows);
   if (!numerotari.length) return [];
 
@@ -139,11 +137,140 @@ function extrageArticoleF3(cale) {
 }
 
 /**
+ * Extrage articolele (linii F3, cu pret TOTAL) dintr-un fisier .xlsx STANDALONE
+ * (un singur formular F3 per fisier -- cazul obisnuit, AIUD/DEVA/VASLUI/ZAM/
+ * PANCIU/CHITILA/SF GHEORGHE TERMINAL, identificat prin numele fisierului --
+ * vezi RX_F3). Foloseste mereu prima foaie, indiferent cum se numeste.
+ * @param {string} cale -- fisier local (deja descarcat).
+ * @returns {Array<{cod, denumire, capitol, unitate, cantitate, pretUnitar, total}>}
+ */
+function extrageArticoleF3(cale) {
+  const wb = XLSX.readFile(cale);
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '', raw: false });
+  return extrageArticoleDinFoaie(rows);
+}
+
+const RX_FORMULAR_F3 = /^formular\s*f3\b/i;
+
+/**
+ * Varianta a formularului F3 gasita pe fisierele consolidate (vezi mai jos):
+ * FARA rand de numerotare dinamica ("0,1,2,,3,,4") -- coloane FIXE in schimb
+ * (confirmat pe 4 fisiere reale, 15.09.2026): 0=Nr, 1="COD - Denumire" (o
+ * singura celula, separate prin " - "), 6=UM, 8=cantitate, 10=pret unitar,
+ * 12=total. Randurile de sub-descompunere (material:/manopera:/utilaj:/
+ * transport:) au coloana 0 goala -- excluse automat. Recapitulatia
+ * (TOTAL 1/Cheltuieli indirecte/Beneficiu/TOTAL GENERAL/TVA) incepe mereu cu
+ * "TOTAL 1 (Cheltuieli directe)" -- opreste extragerea (CUVINTE_FOOTER).
+ */
+function extrageArticoleFormatFix(rows) {
+  const rezultat = [];
+  let capitolCurent = null;
+  for (const r of rows) {
+    const col0 = String(r[0] || '').trim();
+    if (!col0) continue; // eslint-disable-line no-continue -- sub-descompunere sau rand gol
+    if (CUVINTE_FOOTER.test(col0)) break; // recapitulatie -- gata cu foaia asta
+    if (RX_FORMULAR_F3.test(col0)) continue; // eslint-disable-line no-continue -- randul de titlu al formularului, nu un capitol real
+
+    const codDenumire = String(r[1] || '').trim();
+    const pretUnitar = parseNumarSauNull(r[10]);
+    if (pretUnitar === null || pretUnitar <= 0) {
+      // La fel ca in extrageArticoleDinFoaie: text fara pret real = titlu de
+      // capitol, nu articol (vezi comentariul de acolo pt motivare completa).
+      if (!codDenumire) capitolCurent = col0;
+      continue; // eslint-disable-line no-continue
+    }
+    if (!codDenumire) continue; // eslint-disable-line no-continue -- pret dar fara cod/denumire, neasteptat
+
+    const m = /^(.+?)\s-\s(.+)$/.exec(codDenumire);
+    const codBrut = m ? m[1].trim() : codDenumire;
+    const cod = curataCodDat(codBrut);
+
+    rezultat.push({
+      cod,
+      denumire: m ? m[2].trim() : codDenumire,
+      capitol: capitolCurent,
+      unitate: String(r[6] || '').trim() || null,
+      cantitate: parseNumarSauNull(r[8]),
+      pretUnitar,
+      total: parseNumarSauNull(r[12]),
+    });
+  }
+  return rezultat;
+}
+
+/**
+ * Extrage articolele F3 dintr-un fisier .xls/.xlsx CONSOLIDAT -- un singur
+ * workbook cu TOATE formularele (F1/F2/F3/F4/C6-C9) ca foi separate, gasit
+ * real pe 3 proiecte noi (15.09.2026): COLEGIUL GHEORGHE VRANCEANU BACAU,
+ * TRANSPORT PUBLIC ROMAN, TRANSPORT PUBLIC ONESTI -- niciunul nu avea fisiere
+ * separate "- F3 -" (RX_F3 nu gasea nimic, 0 articole importate silentios).
+ *
+ * Foile F3 NU se identifica dupa numele foii -- Excel trunchiaza numele la
+ * 31 caractere, taind exact sufixul "_F3_..." pe titluri lungi (confirmat
+ * real: "TRANSPORT PUBLIC ROMAN...LOT 2 STATII.xls" are foi F3 numite
+ * "2_1_STATII_CALATORI_20_BUC__REZ" -- fara "F3" vizibil deloc). Semnal
+ * ROBUST in schimb: celula A1 a fiecarei foi incepe mereu cu "Formular F3"
+ * (F1/F2/F4/C6-C9 incep cu "Formular F1"/"F2"/etc. -- niciodata ambiguu).
+ *
+ * Incearca intai formatul dinamic obisnuit (extrageArticoleDinFoaie); daca
+ * nu gaseste nimic (cazul real aici -- fisierele consolidate folosesc alt
+ * layout, fara rand de numerotare), foloseste formatul cu coloane fixe
+ * (extrageArticoleFormatFix).
+ * @param {string} cale -- fisier local (deja descarcat).
+ * @returns {Array<{cod, denumire, capitol, unitate, cantitate, pretUnitar, total}>}
+ */
+function extrageArticoleF3DinFoiConsolidate(cale) {
+  const wb = XLSX.readFile(cale);
+  let rezultat = [];
+  for (const nume of wb.SheetNames) {
+    const foaie = wb.Sheets[nume];
+    const a1 = foaie.A1 ? String(foaie.A1.v || '').trim() : '';
+    if (!RX_FORMULAR_F3.test(a1)) continue; // eslint-disable-line no-continue -- nu e o foaie F3
+
+    const rows = XLSX.utils.sheet_to_json(foaie, { header: 1, defval: '', raw: false });
+    const articoleDinamic = extrageArticoleDinFoaie(rows);
+    rezultat = rezultat.concat(articoleDinamic.length ? articoleDinamic : extrageArticoleFormatFix(rows));
+  }
+  return rezultat;
+}
+
+/**
  * Importa articolele F3 din toate proiectele disponibile prin Core API
  * (/api/devize-castigate), in istoric_articole_castigate. Sterge-si-
  * reinsereaza (nu se aduna la infinit intre rulari).
  * @returns {Promise<{proiecteProcesate, fisiereProcesate, articoleGasite, avertismente}>}
  */
+const RX_EXCEL = /\.xlsx?$/i;
+
+async function proceseazaUnFisier({
+  proiect, f, dirTemp, extractor, stare,
+}) {
+  const caleLocala = path.join(dirTemp, proiect.replace(/[^A-Za-z0-9]/g, '_'), f.nume.replace(/[^A-Za-z0-9.\-]/g, '_'));
+  try {
+    await devizeCastigate.descarcaFisier(proiect, f.cale, caleLocala);
+    const articole = extractor(caleLocala);
+    stare.fisiereProcesate += 1;
+    stare.articoleGasite += articole.length;
+    for (const a of articole) {
+      db.adaugaArticolIstoric({
+        proiect,
+        cod: a.cod,
+        denumire: a.denumire,
+        capitol: a.capitol,
+        unitate: a.unitate,
+        cantitate: a.cantitate,
+        pretUnitar: a.pretUnitar,
+        total: a.total,
+        documentSursa: f.cale,
+      });
+    }
+  } catch (e) {
+    stare.avertismente.push(`${proiect}/${f.nume}: ${e.message}`);
+  } finally {
+    try { fs.unlinkSync(caleLocala); } catch { /* deja sters sau nu a fost creat -- nu conteaza */ }
+  }
+}
+
 async function importaArticoleIstorice() {
   const proiecte = await devizeCastigate.listaProiecte();
   const dirTemp = fs.mkdtempSync(path.join(os.tmpdir(), 'istoric-articole-'));
@@ -160,30 +287,24 @@ async function importaArticoleIstorice() {
     stare.proiecteProcesate += 1;
 
     for (const f of fisiereF3) {
-      const caleLocala = path.join(dirTemp, proiect.replace(/[^A-Za-z0-9]/g, '_'), f.nume.replace(/[^A-Za-z0-9.\-]/g, '_'));
-      try {
+      // eslint-disable-next-line no-await-in-loop
+      await proceseazaUnFisier({
+        proiect, f, dirTemp, extractor: extrageArticoleF3, stare,
+      });
+    }
+
+    // Niciun fisier standalone "- F3 -" gasit -- verificam daca proiectul
+    // are datele F3 ca FOI intr-un workbook consolidat (gasit real 15.09.2026,
+    // vezi extrageArticoleF3DinFoiConsolidate). Doar cand fisiereF3 e goala,
+    // ca sa nu descarcam inutil sute de fisiere excel irelevante (F1/F2/C6-C9
+    // standalone) pe proiectele care deja merg prin calea normala.
+    if (fisiereF3.length === 0) {
+      const candidatiConsolidati = listare.fisiere.filter((f) => RX_EXCEL.test(f.nume));
+      for (const f of candidatiConsolidati) {
         // eslint-disable-next-line no-await-in-loop
-        await devizeCastigate.descarcaFisier(proiect, f.cale, caleLocala);
-        const articole = extrageArticoleF3(caleLocala);
-        stare.fisiereProcesate += 1;
-        stare.articoleGasite += articole.length;
-        for (const a of articole) {
-          db.adaugaArticolIstoric({
-            proiect,
-            cod: a.cod,
-            denumire: a.denumire,
-            capitol: a.capitol,
-            unitate: a.unitate,
-            cantitate: a.cantitate,
-            pretUnitar: a.pretUnitar,
-            total: a.total,
-            documentSursa: f.cale,
-          });
-        }
-      } catch (e) {
-        stare.avertismente.push(`${proiect}/${f.nume}: ${e.message}`);
-      } finally {
-        try { fs.unlinkSync(caleLocala); } catch { /* deja sters sau nu a fost creat -- nu conteaza */ }
+        await proceseazaUnFisier({
+          proiect, f, dirTemp, extractor: extrageArticoleF3DinFoiConsolidate, stare,
+        });
       }
     }
   }
@@ -209,4 +330,6 @@ function gasesteReferintaIstorica(linie, limita = 5) {
   return db.cautaArticoleIstoricePrinText(text, limita);
 }
 
-module.exports = { extrageArticoleF3, importaArticoleIstorice, gasesteReferintaIstorica };
+module.exports = {
+  extrageArticoleF3, extrageArticoleF3DinFoiConsolidate, importaArticoleIstorice, gasesteReferintaIstorica,
+};
