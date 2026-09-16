@@ -300,6 +300,17 @@ function deschide(outputDir, numeFisier = 'devize.db') {
   // cand a fost gasita (populat si pentru liniile CU cantitate cunoscuta).
   adaugaColoana('antemasuratoare_linii', 'cantitate_necunoscuta', 'INTEGER DEFAULT 0');
   adaugaColoana('antemasuratoare_linii', 'cantitate_sursa', 'TEXT');
+  // Sugestie AI (src/sugestieMatching.js) pt linii "de_revizuit" cu candidati
+  // deja gasiti de matching -- NU alege singura, NU schimba stare/colectie/
+  // cod (ramane strict o SUGESTIE, confirmata sau respinsa de om, vezi
+  // comentariul din genereazaSugestii). sugestie_index = pozitia (0-based)
+  // in candidati_json aleasa de AI, NULL daca AI a raspuns "niciunul nu se
+  // potriveste". Cerut de Cristian, 16.09.2026, dupa ce re-matching-ul
+  // determinist a rezolvat 792/2278 linii pe SCN1179715, dar restul de 1486
+  // raman genuin ambigue sau cu cod absent din nomenclator -- revizuire
+  // umana mai rapida cu o sugestie, nu inlocuita de ea.
+  adaugaColoana('rezolutii_matching', 'sugestie_index', 'INTEGER');
+  adaugaColoana('rezolutii_matching', 'sugestie_motiv', 'TEXT');
 
   // Suprascrieri de model per task (vezi src/ai.js, cheama()) -- acelasi
   // tipar ca in recrutare-bot. "rol" e una din cele 3 chei fixe (ROLURI_MODEL,
@@ -466,6 +477,13 @@ function salveazaRezolutie(linieId, rezolutie) {
       rezolutie.stare, rezolutie.candidati_json || '[]', rezolutie.nota || null, acum());
 }
 
+/** Sugestie AI (src/sugestieMatching.js) -- NU atinge stare/colectie/cod,
+ * doar indexul sugerat + motivul, langa rezolutia deja existenta. */
+function salveazaSugestieMatching(linieId, sugestieIndex, sugestieMotiv) {
+  db.prepare('UPDATE rezolutii_matching SET sugestie_index = ?, sugestie_motiv = ? WHERE linie_id = ?')
+    .run(sugestieIndex ?? null, sugestieMotiv || null, linieId);
+}
+
 // Intoarce {denumire} liniei confirmate -- apelantii (rutele de rezolutie)
 // au nevoie de ea ca sa scrie in BFLA (cheia experientei e denumirea), fara
 // sa mai faca o interogare separata doar pentru atat.
@@ -478,7 +496,7 @@ function confirmaRezolutie(linieId, colectie, cod) {
 /** Liniile unui proiect, cu rezolutia lor de matching alaturata (LEFT JOIN --
  * o linie fara nicio rezolutie inca tot trebuie sa apara, cu stare NULL). */
 const liniiCuRezolutiiPeProiect = (proiectId) => db.prepare(`
-  SELECT l.*, r.colectie, r.cod, r.scor, r.stare, r.candidati_json, r.nota
+  SELECT l.*, r.colectie, r.cod, r.scor, r.stare, r.candidati_json, r.nota, r.sugestie_index, r.sugestie_motiv
   FROM antemasuratoare_linii l LEFT JOIN rezolutii_matching r ON r.linie_id = l.id
   WHERE l.proiect_id = ? ORDER BY l.ordine
 `).all(proiectId);
@@ -807,7 +825,7 @@ const stergeSesiunePublica = (token) => db.prepare('DELETE FROM sesiuni_publice 
 // suprascriu (vezi src/ai.js si MODEL din antemasuratoare.js/scopProiect.js/
 // completitudine.js). Un set FIX, nu text liber, ca pagina de Setari sa nu
 // ghiceasca ce rol trimite.
-const ROLURI_MODEL = ['MODEL_EXTRAGERE', 'MODEL_SCOP', 'MODEL_COMPLETITUDINE', 'MODEL_DESCOMPUNERE', 'MODEL_CANTITATI'];
+const ROLURI_MODEL = ['MODEL_EXTRAGERE', 'MODEL_SCOP', 'MODEL_COMPLETITUDINE', 'MODEL_DESCOMPUNERE', 'MODEL_CANTITATI', 'MODEL_SUGESTIE_MATCHING'];
 
 /** Toate suprascrierile active, ca {rol: model_slug}. Poate fi gol. */
 function setariModel() {
@@ -842,7 +860,7 @@ module.exports = {
   creeazaProiect, proiectDupaId, toateProiectele, actualizeazaStareProiect, actualizeazaScopProiect,
   seteazaCodLicitatie, proiectDupaCodLicitatie,
   insereazaLiniiAntemasuratoare, liniiPeProiect, liniiCuRezolutiiPeProiect,
-  salveazaRezolutie, confirmaRezolutie,
+  salveazaRezolutie, confirmaRezolutie, salveazaSugestieMatching,
   salveazaPretCurent, pretCurent,
   adaugaIstoricPret, adaugaIstoricPretSigur, istoricPreturiPentruArticol, colectiiPentruCodNomenclator, sugestiiPentruFurnizor, TIPURI_SURSA_PRET,
   stergeArticoleIstorice, adaugaArticolIstoric, articoleIstoricePentruCod, cautaArticoleIstoricePrinText,

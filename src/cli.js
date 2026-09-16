@@ -228,6 +228,32 @@ async function comandaReproceseazaMatching(args) {
   console.log(`  ${schimbate} linii si-au schimbat starea fata de rezolutia anterioara.`);
 }
 
+/**
+ * Sugestie AI (src/sugestieMatching.js) pt liniile "de_revizuit" cu candidati
+ * deja gasiti -- NU alege in locul omului, doar marcheaza cea mai probabila
+ * optiune + motiv, pt revizuire mai rapida (vezi "revizuieste", scurtatura
+ * "s"). Cost AI real -- de rulat explicit, dupa "reproceseaza-matching"
+ * (deterministic, gratuit), niciodata implicit.
+ */
+async function comandaSugereazaMatching(args) {
+  const proiectId = Number(args[0]);
+  if (!proiectId) { console.error('Da id-ul proiectului.'); process.exit(1); }
+  const proiect = db.proiectDupaId(proiectId);
+  if (!proiect) { console.error(`Proiect inexistent: ${proiectId}`); process.exit(1); }
+
+  const sugestieMatching = require('./sugestieMatching');
+  const t0 = Date.now();
+  const stare = await sugestieMatching.genereazaSugestii(proiectId);
+  console.log(`Durata: ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  console.log(`Procesate: ${stare.procesate} linii.`);
+  console.log(`  ${stare.sugerate} au primit o sugestie, ${stare.faraSugestie} -- AI a raspuns "niciun candidat nu se potriveste".`);
+  if (stare.avertismente.length) {
+    console.log(`\n${stare.avertismente.length} avertismente:`);
+    stare.avertismente.forEach((a) => console.log('  - ' + a));
+  }
+  console.log(`\nUrmatorul pas: node index.js revizuieste ${proiectId} (sugestiile apar marcate cu ⭐, scurtatura "s" le accepta)`);
+}
+
 /** Confirma local (sursa de adevar), apoi scrie in BFLA -- esecul scrierii
  * in BFLA nu trebuie sa strice confirmarea, deja salvata (REGULA DE AUR). */
 async function confirmaSiScrieInBfla(linie, ales) {
@@ -262,11 +288,28 @@ async function comandaRevizuieste(args) {
     if (l.nota) console.log(`  ⚠️  ${l.nota}`);
     let candidati = JSON.parse(l.candidati_json || '[]');
     if (!candidati.length) console.log('  (niciun candidat gasit automat)');
-    candidati.forEach((c, i) => console.log(`  ${i + 1}. [${c.colectie}/${c.cod}] ${c.descriere} (${c.unitate})`));
+    candidati.forEach((c, i) => {
+      const marcaj = i === l.sugestie_index ? '  ⭐' : '   ';
+      console.log(`${marcaj} ${i + 1}. [${c.colectie}/${c.cod}] ${c.descriere} (${c.unitate})`);
+    });
+    // Sugestie AI (src/sugestieMatching.js) -- NICIODATA aleasa singura,
+    // doar marcata (⭐ mai sus) si oferita ca scurtatura "s" mai jos; omul tot
+    // decide, apasand numarul sau respingand cu Enter, ca inainte.
+    if (l.sugestie_index !== null && l.sugestie_index !== undefined && candidati[l.sugestie_index]) {
+      console.log(`  Sugestie AI: opțiunea ${l.sugestie_index + 1} -- ${l.sugestie_motiv || ''}`);
+    }
 
     // eslint-disable-next-line no-await-in-loop
-    const raspuns = (await intreaba('  Alege numarul, "c" pentru cautare noua, sau Enter ca sa sari: ')).trim();
+    const raspuns = (await intreaba('  Alege numarul, "s" pt sugestia AI, "c" pentru cautare noua, sau Enter ca sa sari: ')).trim();
     if (!raspuns) continue;
+
+    if (raspuns.toLowerCase() === 's') {
+      const ales = (l.sugestie_index !== null && l.sugestie_index !== undefined) ? candidati[l.sugestie_index] : null;
+      // eslint-disable-next-line no-await-in-loop
+      if (ales) await confirmaSiScrieInBfla(l, ales);
+      else console.log('  Nicio sugestie AI disponibila pentru aceasta linie, sarit.');
+      continue; // eslint-disable-line no-continue
+    }
 
     if (raspuns.toLowerCase() === 'c') {
       // eslint-disable-next-line no-await-in-loop
@@ -829,6 +872,7 @@ async function main() {
     case 'incarca': return comandaIncarca(args);
     case 'incarca-deviz': return comandaIncarcaDeviz(args);
     case 'reproceseaza-matching': return comandaReproceseazaMatching(args);
+    case 'sugereaza-matching': return comandaSugereazaMatching(args);
     case 'revizuieste': return comandaRevizuieste(args);
     case 'genereaza': return comandaGenereaza(args);
     case 'preturi': return comandaPreturi(args);
@@ -848,6 +892,7 @@ async function main() {
   incarca <fisier> --proiect "Nume"        antemasuratoare LIBERA (Excel/PDF/Word) -- aleg singur articolele din nomenclator
   incarca-deviz <fisier> --proiect "Nume"  deviz DEJA structurat (impus), fara valori -- respecta codurile date, semnaleaza ce nu se leaga
   reproceseaza-matching <proiectId>    reruleaza matching-ul (cod curent) pe liniile deja importate, fara reimport -- liniile confirmate manual raman neatinse
+  sugereaza-matching <proiectId>    sugestie AI pt liniile "de_revizuit" cu candidati (cost AI real) -- NU alege singura, doar marcheaza optiunea probabila
   importa-licitatie <idLicitatie> --proiect "Nume"   importa direct dintr-o licitatie (dosar local licitatie-analiza, sau -- daca nu exista -- direct din server/SharePoint prin Core API)
   predefineste <idLicitatie> --proiect "Nume"        genereaza devizul DE LA ZERO (fara liste_cantitati in dosar) -- din scop + documentatie tehnica (aceeasi sursa dubla ca importa-licitatie)
   verifica-completitudine <proiectId>  verifica daca devizul acopera tot ce cere documentatia licitatiei (dupa importa-licitatie/predefineste)
