@@ -88,8 +88,10 @@
   .capitol-chip { padding:3px 10px; border-radius:20px; background:var(--firma-f); color:var(--firma); font-size:11.5px; font-weight:650; }
   .avertisment { display:flex; gap:8px; align-items:flex-start; font-size:12.5px; color:var(--poate); margin-bottom:12px; background:var(--poate-f); padding:10px 12px; border-radius:10px; }
 
+  .sugestie-ai { font-size:12.5px; color:var(--accent); margin-bottom:8px; font-weight:600; }
   .candidat { display:flex; align-items:center; gap:12px; padding:12px 14px; border:1.5px solid var(--linie2); border-radius:12px; margin-bottom:8px; cursor:pointer; }
   .candidat:hover { border-color:var(--accent); }
+  .candidat-sugerat { border-color:var(--accent); background:var(--accent-f); }
   .candidat-info { flex:1; min-width:0; }
   .candidat-desc { font-size:13.5px; font-weight:600; margin:0 0 3px; }
   .candidat-cod { font-family:var(--font-mono); font-size:11px; color:var(--sters); }
@@ -342,15 +344,19 @@ async function paginaRevizuire(proiectId) {
   const rezolvate = linii.filter((l) => l.stare === 'auto' || l.stare === 'confirmat');
   const faraPotrivire = linii.filter((l) => l.stare === 'fara_potrivire').length;
 
-  function randCandidat(c, linieId) {
-    return `<div class="candidat" onclick="window.__confirma(${linieId}, '${esc(c.colectie)}', '${esc(c.cod)}')">
-      <div class="candidat-info"><p class="candidat-desc">${esc(c.descriere)}</p><span class="candidat-cod">${esc(c.colectie)} / ${esc(c.cod)}</span></div>
+  function randCandidat(c, linieId, esteSugestie) {
+    return `<div class="candidat${esteSugestie ? ' candidat-sugerat' : ''}" onclick="window.__confirma(${linieId}, '${esc(c.colectie)}', '${esc(c.cod)}')">
+      <div class="candidat-info"><p class="candidat-desc">${esteSugestie ? '⭐ ' : ''}${esc(c.descriere)}</p><span class="candidat-cod">${esc(c.colectie)} / ${esc(c.cod)}</span></div>
       <span class="candidat-um">${esc(c.unitate||'')}</span>
     </div>`;
   }
 
   const liniiHtml = deRevizuit.map((l) => {
     const candidati = JSON.parse(l.candidati_json || '[]');
+    // Sugestie AI (src/sugestieMatching.js) -- NICIODATA aplicata singura,
+    // doar marcata (⭐, cu motiv) -- omul tot apasa cardul ca sa confirme,
+    // exact ca la orice alt candidat.
+    const areSugestie = l.sugestie_index !== null && l.sugestie_index !== undefined && candidati[l.sugestie_index];
     return `<div class="linie-card" id="linie-${l.id}">
       <p class="linie-denumire">${esc(l.denumire)}</p>
       <div class="linie-meta">
@@ -359,7 +365,8 @@ async function paginaRevizuire(proiectId) {
         ${l.cod_dat ? `<span>Cod dat: <b>${esc(l.cod_dat)}</b></span>` : ''}
       </div>
       ${l.nota ? `<div class="avertisment">${ic('<path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/>', 15)}${esc(l.nota)}</div>` : ''}
-      ${candidati.length ? candidati.map((c) => randCandidat(c, l.id)).join('') : '<p style="color:var(--sters);font-size:13px">Niciun candidat găsit automat.</p>'}
+      ${areSugestie ? `<div class="sugestie-ai">⭐ Sugestie AI: ${esc(l.sugestie_motiv || '')}</div>` : ''}
+      ${candidati.length ? candidati.map((c, i) => randCandidat(c, l.id, areSugestie && i === l.sugestie_index)).join('') : '<p style="color:var(--sters);font-size:13px">Niciun candidat găsit automat.</p>'}
       <div class="cauta-w">
         <input placeholder="Caută alt articol în nomenclator..." onkeydown="if(event.key==='Enter') window.__cautaManual(${l.id}, this.value)">
         <button class="btn" onclick="window.__cautaManual(${l.id}, this.previousElementSibling.value)">Caută</button>
