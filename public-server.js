@@ -1,12 +1,23 @@
 // public-server.js
 // Versiunea PUBLICA a panoului (devize.buildandfix.ai) -- firme externe, cu
-// cont propriu, izolate complet una de alta si de instrumentul intern.
+// cont propriu, izolate una de alta prin firma_id, nu prin fisier separat.
 //
 // Reutilizeaza NESCHIMBAT tot motorul stateless (matching, descompunere,
-// extragere AI) -- doar persistenta si autentificarea sunt diferite fata de
-// panou.js: baza proprie (public.db, nu devize.db), fiecare proiect legat de
-// o firma_id, fiecare pret in preturi_curente_firma, nu in cache-ul global.
-// Vezi planul (goofy-dazzling-bee.md) pentru motivatia completa.
+// extragere AI) -- doar persistenta si autentificarea difera fata de
+// panou.js: fiecare proiect legat de o firma_id (panou.js nu foloseste
+// deloc coloana asta), fiecare pret in preturi_curente_firma, nu in
+// cache-ul global.
+//
+// UNIFICAT cu baza interna (16.09.2026, cerut de Cristian direct): pana
+// atunci rula pe un fisier SEPARAT (public.db) -- munca facuta prin
+// pipeline (CLI/Orchestrator) nu ajungea niciodata vizibila aici, desi
+// schema era deja pregatita pt asta (firma_id exista pe "proiecte" de la
+// inceput, doar neutilizata pe partea interna). Acum deschide ACELASI
+// fisier ca panou.js/cli.js (devize.db) -- izolarea intre firme ramane
+// garantata de filtrele *SiFirma/*PeFirma de mai jos, nu de un fisier
+// separat pe disc. public.db a fost redenumit .retras-<data>, pastrat ca
+// istoric (continutul lui unic -- firma RED POWER CONS, sesiuni active,
+// preturi_curente_firma -- a fost copiat in devize.db la migrare).
 'use strict';
 
 const http = require('http');
@@ -43,7 +54,7 @@ const ETICHETE_ROL_MODEL = {
   MODEL_CANTITATI: 'Devize predefinite — extrage cantități din documentație',
 };
 
-db.deschide(OUTPUT_DIR, 'public.db');
+db.deschide(OUTPUT_DIR);
 
 function caleProiect(proiectId, ...parti) {
   return path.join(OUTPUT_DIR, 'public-proiecte', String(proiectId), ...parti);

@@ -21,6 +21,15 @@ const { slug } = require('./util');
 
 const OUTPUT_DIR = path.join(__dirname, '..', 'output');
 
+// Firma sub care se leaga automat proiectele create de CLI/Orchestrator, de
+// cand devize.db si public.db s-au unificat (16.09.2026, cerut de Cristian
+// direct) -- fara pas de autentificare pe fluxul automat, firma_id atasat
+// automat, ca munca pipeline-ului sa fie vizibila in devize.buildandfix.ai
+// fara nimic suplimentar. Suprascriere posibila din .env daca apare vreodata
+// un al doilea tenant intern -- azi exista un singur tenant (RED POWER CONS
+// SRL, firma_id=2).
+const FIRMA_ID_INTERN = Number(process.env.FIRMA_ID_INTERN) || 2;
+
 function caleProiect(proiectId, ...parti) {
   return path.join(OUTPUT_DIR, 'proiecte', String(proiectId), ...parti);
 }
@@ -150,7 +159,7 @@ async function proceseazaIncarcare(args, alegeMatchFn) {
     throw new Error('Nicio linie gasita in document.');
   }
 
-  const proiectId = db.creeazaProiect(nume, fisier);
+  const proiectId = db.creeazaProiectPentruFirma(nume, fisier, FIRMA_ID_INTERN);
   db.insereazaLiniiAntemasuratoare(proiectId, linii);
 
   const bflaEntries = bfla.ACTIV ? await bfla.cauta({ tip: 'potrivire_articol', limita: 500 }) : [];
@@ -583,7 +592,7 @@ async function comandaPredefineste(args) {
     process.exit(1);
   }
 
-  const proiectId = db.creeazaProiect(nume, `predefinit din ${idLicitatie}`);
+  const proiectId = db.creeazaProiectPentruFirma(nume, `predefinit din ${idLicitatie}`, FIRMA_ID_INTERN);
   db.seteazaCodLicitatie(proiectId, idLicitatie);
   db.insereazaLiniiAntemasuratoare(proiectId, linii);
   db.actualizeazaScopProiect(proiectId, scop);
@@ -913,4 +922,6 @@ async function main() {
 // "gasesteDocumenteLicitatie" e exportata ca sa poata fi refolosita si de
 // verificareCantitatiPT.js (Robot A/B/C/D) -- fara sa duplice logica de
 // rutare local/server (inclusiv fix-ul CLASE_RELEVANTE de mai sus).
-module.exports = { main, gasesteDocumenteLicitatie, importaLicitatieAutomat };
+module.exports = {
+  main, gasesteDocumenteLicitatie, importaLicitatieAutomat, FIRMA_ID_INTERN,
+};

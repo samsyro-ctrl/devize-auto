@@ -15,11 +15,12 @@ const { ensureDir } = require('./util');
 
 let db = null;
 
-/** Deschide (si creeaza la prima rulare) baza. "numeFisier" -- separat pentru
- * instanta publica (public.db, vezi public-server.js) fata de cea interna
- * (devize.db, panou.js) -- doua fisiere diferite, izolare garantata la nivel
- * de disc, nu doar printr-o coloana de filtrare usor de uitat intr-o
- * interogare viitoare. */
+/** Deschide (si creeaza la prima rulare) baza. "numeFisier" ramane
+ * parametrizabil (scripturi separate, teste), dar de la unificare
+ * (16.09.2026, cerut de Cristian direct) panou.js/cli.js SI public-server.js
+ * deschid acelasi fisier implicit (devize.db) -- izolarea intre firme se
+ * face prin filtrele *SiFirma/*PeFirma (vezi creeazaProiectPentruFirma,
+ * proiectDupaIdSiFirma etc.), nu prin fisiere separate pe disc ca inainte. */
 function deschide(outputDir, numeFisier = 'devize.db') {
   if (db) return db;
   const { DatabaseSync } = require('node:sqlite');

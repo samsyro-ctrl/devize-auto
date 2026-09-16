@@ -278,7 +278,12 @@ const server = http.createServer(async (req, res) => {
         const linii = await antemasuratoare.extrageLiniiAntemasuratoare(text, avertismente);
         if (!linii.length) return json(res, { eroare: 'Nicio linie gasita in document.', avertismente }, 422);
 
-        const proiectId = db.creeazaProiect(proiect, nume);
+        // firma_id atasat automat (unificare 16.09.2026, vezi src/cli.js
+        // FIRMA_ID_INTERN) -- ca proiectele incarcate din panoul intern sa
+        // fie la fel de vizibile in devize.buildandfix.ai ca cele create de
+        // CLI/Orchestrator, fara pas suplimentar.
+        const { FIRMA_ID_INTERN } = require('./src/cli');
+        const proiectId = db.creeazaProiectPentruFirma(proiect, nume, FIRMA_ID_INTERN);
         db.insereazaLiniiAntemasuratoare(proiectId, linii);
 
         const alegeMatchFn = flux === 'impus' ? matching.alegeMatchCuCod : matching.alegeMatch;

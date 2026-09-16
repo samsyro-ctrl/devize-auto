@@ -46,7 +46,13 @@ function valoareLinie(colectie, cod, cantitate, avertismente, firmaId) {
  * @throws {Error} daca exista linii nerezolvate -- nu genereaza deviz partial fara avertisment explicit.
  */
 function construiesteDeviz(proiectId, firmaId) {
-  const proiect = db.proiectDupaId(proiectId);
+  // Fix de igiena (16.09.2026, gasit in trecere la unificarea bazelor):
+  // cu firmaId dat, foloseste lookup-ul SCOPAT -- inofensiv azi (apelantul
+  // unic, public-server.js, verifica deja proprietatea inainte de a ajunge
+  // aici), dar odata ce "proiecte" are mai multi tenanti reali, o cale noua
+  // care ar chema functia asta direct, fara verificarea de dinainte, ar
+  // putea intoarce devizul altei firme.
+  const proiect = firmaId ? db.proiectDupaIdSiFirma(proiectId, firmaId) : db.proiectDupaId(proiectId);
   if (!proiect) throw new Error(`Proiect inexistent: ${proiectId}`);
 
   const linii = db.liniiCuRezolutiiPeProiect(proiectId);
