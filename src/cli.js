@@ -186,6 +186,48 @@ const comandaIncarca = (args) => proceseazaIncarcare(args, matching.alegeMatch);
  * nu exista se cade pe cautare libera, semnalat explicit. */
 const comandaIncarcaDeviz = (args) => proceseazaIncarcare(args, matching.alegeMatchCuCod);
 
+/**
+ * Reproceseaza matching-ul pe liniile DEJA importate ale unui proiect, cu
+ * codul CURENT (nu re-importa nimic) -- util cand matching.js s-a
+ * imbunatatit intre timp (gasit real, 16.09.2026, SCN1179715: liniile lui
+ * fusesera importate/matchuite inainte de fix-ul din 14-15.09 pt resurse
+ * brute -- ~48% din liniile "de_revizuit" (esantion real, 300 linii)
+ * deveneau "auto" doar retestand cu codul curent, fara niciun apel AI, fara
+ * reimport). Deterministic, cost zero -- sigur de rulat oricand.
+ *
+ * NICIODATA nu atinge liniile deja "confirmat" (decizie umana, sursa de
+ * adevar) -- doar 'auto'/'de_revizuit'/'fara_potrivire' pot fi rescrise.
+ * alegeMatchCuCod functioneaza corect si pt linii fara cod_dat (cade intern
+ * pe alegeMatch) -- o singura comanda, indiferent cum a fost importat
+ * proiectul initial.
+ */
+async function comandaReproceseazaMatching(args) {
+  const proiectId = Number(args[0]);
+  if (!proiectId) { console.error('Da id-ul proiectului.'); process.exit(1); }
+  const proiect = db.proiectDupaId(proiectId);
+  if (!proiect) { console.error(`Proiect inexistent: ${proiectId}`); process.exit(1); }
+
+  const linii = db.liniiCuRezolutiiPeProiect(proiectId).filter((l) => l.stare !== 'confirmat');
+  const bflaEntries = bfla.ACTIV ? await bfla.cauta({ tip: 'potrivire_articol', limita: 500 }) : [];
+
+  let auto = 0;
+  let deRevizuit = 0;
+  let faraPotrivire = 0;
+  let schimbate = 0;
+  for (const l of linii) {
+    const rezolutie = matching.alegeMatchCuCod(l, bflaEntries);
+    if (rezolutie.stare !== l.stare) schimbate += 1;
+    db.salveazaRezolutie(l.id, rezolutie);
+    if (rezolutie.stare === 'auto') auto += 1;
+    else if (rezolutie.stare === 'fara_potrivire') faraPotrivire += 1;
+    else deRevizuit += 1;
+  }
+
+  console.log(`Reprocesate ${linii.length} linii (liniile deja confirmate manual raman neatinse).`);
+  console.log(`  ${auto} auto-potrivite, ${deRevizuit} de revizuit, ${faraPotrivire} fara nicio potrivire.`);
+  console.log(`  ${schimbate} linii si-au schimbat starea fata de rezolutia anterioara.`);
+}
+
 /** Confirma local (sursa de adevar), apoi scrie in BFLA -- esecul scrierii
  * in BFLA nu trebuie sa strice confirmarea, deja salvata (REGULA DE AUR). */
 async function confirmaSiScrieInBfla(linie, ales) {
@@ -786,6 +828,7 @@ async function main() {
   switch (comanda) {
     case 'incarca': return comandaIncarca(args);
     case 'incarca-deviz': return comandaIncarcaDeviz(args);
+    case 'reproceseaza-matching': return comandaReproceseazaMatching(args);
     case 'revizuieste': return comandaRevizuieste(args);
     case 'genereaza': return comandaGenereaza(args);
     case 'preturi': return comandaPreturi(args);
@@ -804,6 +847,7 @@ async function main() {
       console.log(`Comenzi disponibile:
   incarca <fisier> --proiect "Nume"        antemasuratoare LIBERA (Excel/PDF/Word) -- aleg singur articolele din nomenclator
   incarca-deviz <fisier> --proiect "Nume"  deviz DEJA structurat (impus), fara valori -- respecta codurile date, semnaleaza ce nu se leaga
+  reproceseaza-matching <proiectId>    reruleaza matching-ul (cod curent) pe liniile deja importate, fara reimport -- liniile confirmate manual raman neatinse
   importa-licitatie <idLicitatie> --proiect "Nume"   importa direct dintr-o licitatie (dosar local licitatie-analiza, sau -- daca nu exista -- direct din server/SharePoint prin Core API)
   predefineste <idLicitatie> --proiect "Nume"        genereaza devizul DE LA ZERO (fara liste_cantitati in dosar) -- din scop + documentatie tehnica (aceeasi sursa dubla ca importa-licitatie)
   verifica-completitudine <proiectId>  verifica daca devizul acopera tot ce cere documentatia licitatiei (dupa importa-licitatie/predefineste)
