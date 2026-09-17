@@ -341,19 +341,16 @@ function paginaProiectNou() {
 // ─── Pagina: revizuire (matching) ───────────────────────────────────────────
 async function paginaRevizuire(proiectId) {
   app(antet('revizuire', proiectId) + `<main><div class="incarcare">Se încarcă...</div></main>`);
-  let date, istoric;
-  try {
-    // Referinte-istorice (deja construita azi, ruta separata) -- preluata o
-    // singura data, pt tot proiectul, ca sa nu facem un apel per linie.
-    // Cost zero (cautare locala FTS5/cod exact, fara AI) -- vezi
-    // src/istoricArticole.js gasesteReferintaIstorica.
-    [date, istoric] = await Promise.all([
-      api(`/api/proiecte/${proiectId}`),
-      api(`/api/proiecte/${proiectId}/referinte-istorice`),
-    ]);
-  } catch (e) { return eroareGenerala(e); }
+  let date;
+  try { date = await api(`/api/proiecte/${proiectId}`); } catch (e) { return eroareGenerala(e); }
   const { proiect, linii } = date;
-  const referintePeLinie = new Map((istoric?.rezultate || []).map((r) => [r.linieId, r.referinte]));
+  // Pretul istoric se cere PER LINIE, la click (vezi window.__aratapret) --
+  // NU la incarcarea paginii pt tot proiectul deodata. Gasit real
+  // (17.09.2026): pe un proiect mare (3000+ linii), cautarea FTS insumata
+  // pt toate liniile dura 37-74s -- ruta /referinte-istorice accepta acum
+  // "?linieId=" tocmai pt asta (vezi panou.js). Cache simplu, per pagina,
+  // ca un dublu-click sa nu mai refaca aceeasi cautare.
+  const cachePretIstoric = new Map();
 
   const deRevizuit = linii.filter((l) => l.stare !== 'auto' && l.stare !== 'confirmat');
   const rezolvate = linii.filter((l) => l.stare === 'auto' || l.stare === 'confirmat');
@@ -377,7 +374,6 @@ async function paginaRevizuire(proiectId) {
     // acum motivul asta ramanea nefolosit in UI. Aratat distinct (neutru,
     // nu accent) fata de o sugestie reala, ca sa nu para o recomandare.
     const motivNegativ = !areSugestie && l.sugestie_motiv;
-    const referinte = referintePeLinie.get(l.id) || [];
     return `<div class="linie-card" id="linie-${l.id}">
       <p class="linie-denumire">${esc(l.denumire)}</p>
       <div class="linie-meta">
@@ -394,14 +390,8 @@ async function paginaRevizuire(proiectId) {
         <button class="btn" onclick="window.__cautaManual(${l.id}, this.previousElementSibling.value)">Caută</button>
       </div>
       <div id="rezultate-cauta-${l.id}"></div>
-      ${referinte.length ? `
-      <button class="btn" onclick="window.__aratapret(${l.id})">${ic('<path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>', 14)} Preț istoric (${referinte.length})</button>
-      <div id="pret-istoric-${l.id}" hidden class="pret-istoric-lista">
-        ${referinte.map((r) => `<div class="pret-istoric-rand">
-          <span>${esc(r.proiect)}${r.cod ? ` · ${esc(r.cod)}` : ''} — ${esc(r.denumire)}</span>
-          <b>${banii(r.pret_unitar)} lei/${esc(r.unitate || '')}</b>
-        </div>`).join('')}
-      </div>` : ''}
+      <button class="btn" onclick="window.__aratapret(${l.id})">${ic('<path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>', 14)} Preț istoric</button>
+      <div id="pret-istoric-${l.id}" hidden class="pret-istoric-lista"></div>
     </div>`;
   }).join('');
 
@@ -432,12 +422,29 @@ async function paginaRevizuire(proiectId) {
     } catch (e) { alert(e.message); }
   };
 
-  // Toggle simplu (fara refetch -- datele sunt deja incarcate, vezi
-  // referintePeLinie mai sus) -- doar arata/ascunde, ca omul sa decida
-  // cand vrea sa vada referintele, fara sa aglomereze pagina implicit.
-  window.__aratapret = (linieId) => {
+  // Fetch LA CLICK, per linie (nu la incarcarea paginii pt tot proiectul --
+  // vezi comentariul de mai sus, gasit real ca dura 37-74s pe un proiect
+  // mare). Cache simplu in cachePretIstoric, ca un al doilea click sa nu
+  // mai refaca aceeasi cautare.
+  window.__aratapret = async (linieId) => {
     const el = document.getElementById(`pret-istoric-${linieId}`);
-    if (el) el.hidden = !el.hidden;
+    if (!el) return;
+    if (!el.hidden) { el.hidden = true; return; }
+    el.hidden = false;
+    if (cachePretIstoric.has(linieId)) { el.innerHTML = cachePretIstoric.get(linieId); return; }
+    el.innerHTML = '<p style="font-size:12px;color:var(--sters);margin:8px 0">Se caută...</p>';
+    try {
+      const { rezultate } = await api(`/api/proiecte/${proiectId}/referinte-istorice?linieId=${linieId}`);
+      const referinte = rezultate[0]?.referinte || [];
+      const html = referinte.length
+        ? referinte.map((r) => `<div class="pret-istoric-rand">
+            <span>${esc(r.proiect)}${r.cod ? ` · ${esc(r.cod)}` : ''} — ${esc(r.denumire)}</span>
+            <b>${banii(r.pret_unitar)} lei/${esc(r.unitate || '')}</b>
+          </div>`).join('')
+        : '<p style="font-size:12px;color:var(--sters);margin:8px 0">Niciun preț istoric găsit pentru această linie.</p>';
+      cachePretIstoric.set(linieId, html);
+      el.innerHTML = html;
+    } catch (e) { el.innerHTML = `<p style="font-size:12px;color:var(--nu)">${esc(e.message)}</p>`; }
   };
 
   window.__cautaManual = async (linieId, text) => {

@@ -369,7 +369,19 @@ const server = http.createServer(async (req, res) => {
       const proiectId = Number(mReferinte[1]);
       const proiect = db.proiectDupaId(proiectId);
       if (!proiect) return json(res, { eroare: 'proiect inexistent' }, 404);
-      const linii = db.liniiCuRezolutiiPeProiect(proiectId);
+      let linii = db.liniiCuRezolutiiPeProiect(proiectId);
+
+      // "linieId" optional -- cauta referinte DOAR pt o singura linie, la
+      // cerere (click), nu pt tot proiectul deodata. Gasit real (17.09.2026,
+      // testare g6 v1): cautarea FTS (cautaArticoleIstoricePrinText) costa
+      // ~10-13ms/linie -- pe un proiect de 3000+ linii (SCN1179715), ruta
+      // fara filtru dura 37-74s, inutilizabila la incarcarea paginii.
+      // Comportamentul VECHI (tot proiectul) ramane neschimbat cand nu se
+      // da "linieId" -- nimeni altcineva nu apela ruta asta pana acum
+      // (verificat), dar nu stricam un consumator posibil viitor.
+      const linieId = u.searchParams.get('linieId');
+      if (linieId) linii = linii.filter((l) => l.id === Number(linieId));
+
       const rezultate = linii.map((l) => ({
         linieId: l.id,
         ordine: l.ordine,
