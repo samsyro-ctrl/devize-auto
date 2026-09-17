@@ -260,6 +260,12 @@ function deschide(outputDir, numeFisier = 'devize.db') {
       document_sursa  TEXT NOT NULL,
       creat_la        TEXT NOT NULL
     );
+    -- Fara asta, "WHERE cod = ?" (articoleIstoricePentruCod) facea scanare
+    -- completa pe toate cele 43.000+ randuri, de fiecare data -- gasit real
+    -- (17.09.2026): /api/proiecte/:id/referinte-istorice, apelata pt un
+    -- proiect intreg (2604 linii cu cod rezolvat), dura 73.8s -- cu indexul
+    -- asta, cautarea exacta devine O(log n), nu O(n).
+    CREATE INDEX IF NOT EXISTS idx_istoric_articole_cod ON istoric_articole_castigate(cod);
     CREATE VIRTUAL TABLE IF NOT EXISTS istoric_articole_fts USING fts5(
       denumire, capitol, id UNINDEXED
     );
