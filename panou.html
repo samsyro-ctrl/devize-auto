@@ -89,6 +89,11 @@
   .avertisment { display:flex; gap:8px; align-items:flex-start; font-size:12.5px; color:var(--poate); margin-bottom:12px; background:var(--poate-f); padding:10px 12px; border-radius:10px; }
 
   .sugestie-ai { font-size:12.5px; color:var(--accent); margin-bottom:8px; font-weight:600; }
+  .sugestie-negativa { color:var(--sters); font-weight:500; }
+  .pret-istoric-lista { margin-top:8px; display:flex; flex-direction:column; gap:6px; }
+  .pret-istoric-rand { display:flex; justify-content:space-between; gap:12px; font-size:12.5px; padding:8px 12px; background:var(--chip); border-radius:8px; }
+  .pret-istoric-rand span { color:var(--slab); }
+  .pret-istoric-rand b { font-family:var(--font-mono); white-space:nowrap; }
   .candidat { display:flex; align-items:center; gap:12px; padding:12px 14px; border:1.5px solid var(--linie2); border-radius:12px; margin-bottom:8px; cursor:pointer; }
   .candidat:hover { border-color:var(--accent); }
   .candidat-sugerat { border-color:var(--accent); background:var(--accent-f); }
@@ -336,9 +341,19 @@ function paginaProiectNou() {
 // ─── Pagina: revizuire (matching) ───────────────────────────────────────────
 async function paginaRevizuire(proiectId) {
   app(antet('revizuire', proiectId) + `<main><div class="incarcare">Se încarcă...</div></main>`);
-  let date;
-  try { date = await api(`/api/proiecte/${proiectId}`); } catch (e) { return eroareGenerala(e); }
+  let date, istoric;
+  try {
+    // Referinte-istorice (deja construita azi, ruta separata) -- preluata o
+    // singura data, pt tot proiectul, ca sa nu facem un apel per linie.
+    // Cost zero (cautare locala FTS5/cod exact, fara AI) -- vezi
+    // src/istoricArticole.js gasesteReferintaIstorica.
+    [date, istoric] = await Promise.all([
+      api(`/api/proiecte/${proiectId}`),
+      api(`/api/proiecte/${proiectId}/referinte-istorice`),
+    ]);
+  } catch (e) { return eroareGenerala(e); }
   const { proiect, linii } = date;
+  const referintePeLinie = new Map((istoric?.rezultate || []).map((r) => [r.linieId, r.referinte]));
 
   const deRevizuit = linii.filter((l) => l.stare !== 'auto' && l.stare !== 'confirmat');
   const rezolvate = linii.filter((l) => l.stare === 'auto' || l.stare === 'confirmat');
@@ -357,6 +372,12 @@ async function paginaRevizuire(proiectId) {
     // doar marcata (⭐, cu motiv) -- omul tot apasa cardul ca sa confirme,
     // exact ca la orice alt candidat.
     const areSugestie = l.sugestie_index !== null && l.sugestie_index !== undefined && candidati[l.sugestie_index];
+    // "De ce?" -- sugestie_motiv exista si cand AI n-a gasit niciun candidat
+    // potrivit (sugestie_index=null, vezi src/sugestieMatching.js) -- pana
+    // acum motivul asta ramanea nefolosit in UI. Aratat distinct (neutru,
+    // nu accent) fata de o sugestie reala, ca sa nu para o recomandare.
+    const motivNegativ = !areSugestie && l.sugestie_motiv;
+    const referinte = referintePeLinie.get(l.id) || [];
     return `<div class="linie-card" id="linie-${l.id}">
       <p class="linie-denumire">${esc(l.denumire)}</p>
       <div class="linie-meta">
@@ -366,12 +387,21 @@ async function paginaRevizuire(proiectId) {
       </div>
       ${l.nota ? `<div class="avertisment">${ic('<path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/>', 15)}${esc(l.nota)}</div>` : ''}
       ${areSugestie ? `<div class="sugestie-ai">⭐ Sugestie AI: ${esc(l.sugestie_motiv || '')}</div>` : ''}
+      ${motivNegativ ? `<div class="sugestie-ai sugestie-negativa">🤖 AI n-a găsit niciun candidat potrivit: ${esc(l.sugestie_motiv)}</div>` : ''}
       ${candidati.length ? candidati.map((c, i) => randCandidat(c, l.id, areSugestie && i === l.sugestie_index)).join('') : '<p style="color:var(--sters);font-size:13px">Niciun candidat găsit automat.</p>'}
       <div class="cauta-w">
         <input placeholder="Caută alt articol în nomenclator..." onkeydown="if(event.key==='Enter') window.__cautaManual(${l.id}, this.value)">
         <button class="btn" onclick="window.__cautaManual(${l.id}, this.previousElementSibling.value)">Caută</button>
       </div>
       <div id="rezultate-cauta-${l.id}"></div>
+      ${referinte.length ? `
+      <button class="btn" onclick="window.__aratapret(${l.id})">${ic('<path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>', 14)} Preț istoric (${referinte.length})</button>
+      <div id="pret-istoric-${l.id}" hidden class="pret-istoric-lista">
+        ${referinte.map((r) => `<div class="pret-istoric-rand">
+          <span>${esc(r.proiect)}${r.cod ? ` · ${esc(r.cod)}` : ''} — ${esc(r.denumire)}</span>
+          <b>${banii(r.pret_unitar)} lei/${esc(r.unitate || '')}</b>
+        </div>`).join('')}
+      </div>` : ''}
     </div>`;
   }).join('');
 
@@ -400,6 +430,14 @@ async function paginaRevizuire(proiectId) {
       await api(`/api/proiecte/${proiectId}/rezolutie`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ linieId, colectie, cod }) });
       paginaRevizuire(proiectId);
     } catch (e) { alert(e.message); }
+  };
+
+  // Toggle simplu (fara refetch -- datele sunt deja incarcate, vezi
+  // referintePeLinie mai sus) -- doar arata/ascunde, ca omul sa decida
+  // cand vrea sa vada referintele, fara sa aglomereze pagina implicit.
+  window.__aratapret = (linieId) => {
+    const el = document.getElementById(`pret-istoric-${linieId}`);
+    if (el) el.hidden = !el.hidden;
   };
 
   window.__cautaManual = async (linieId, text) => {
