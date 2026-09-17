@@ -43,6 +43,22 @@
   .meniu-i.activ { color:var(--text); border-color:var(--accent); }
   .meniu-proiect { margin-left:auto; font-size:13px; color:var(--sters); padding:0 4px 11px; }
   .meniu-proiect b { color:var(--text); font-weight:650; }
+  /* Buton explicit de intoarcere la lista de proiecte -- separat de tabul de
+     analiza, cu o culoare distincta (accent), ca sa nu se piarda in randul
+     de taburi. Gasit real (17.09.2026, feedback Cristian): sigla singura,
+     fara nicio eticheta, nu se citea ca o cale de navigare. */
+  .meniu-i.buton-inapoi { color:var(--accent); }
+  /* Meniu "Analiza" -- grupeaza cele 4 pagini secundare (Completitudine/
+     Executie/Istoric/Cantitati), ca sa nu mai stea 7 taburi plate la un loc.
+     Nu exista un tipar de dropdown-navigare gata in cod (verificat) --
+     mecanica (position:relative/absolute + inchidere la click-in-afara) e
+     noua, inspirata doar ca idee de la combo-ul de modele AI. */
+  .meniu-analiza { position:relative; }
+  .analiza-lista { position:absolute; top:calc(100% + 6px); left:0; z-index:30; min-width:200px;
+    background:var(--warm-1000); border:1px solid var(--linie); border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.5); padding:6px; }
+  .analiza-optiune { padding:10px 12px; border-radius:8px; font-size:13.5px; font-weight:600; color:var(--sters); cursor:pointer; }
+  .analiza-optiune:hover { background:var(--glass-tare); color:var(--text); }
+  .analiza-optiune.activa { color:var(--accent); }
   main { max-width:1400px; margin:0 auto; padding:26px 22px 60px; }
 
   h1 { font-family:var(--font-display); font-size:24px; font-weight:800; margin:0 0 4px; letter-spacing:-.01em; }
@@ -173,6 +189,21 @@ function segmenteRuta() { return (location.hash.replace(/^#\/?/, '') || '').spli
 function navigheaza(ruta) { location.hash = ruta; }
 window.addEventListener('hashchange', redeseneaza);
 
+// Meniul "Analiza" din antet() -- deschis la click, inchis la click in
+// afara lui. Definit O SINGURA DATA (nu per randare de pagina) -- antet()
+// se re-genereaza la fiecare navigare, dar acest handler global ramane
+// valabil neschimbat.
+window.__toggleAnaliza = (e) => {
+  e.stopPropagation();
+  const lista = document.getElementById('analiza-lista');
+  if (lista) lista.hidden = !lista.hidden;
+};
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.meniu-analiza')) return;
+  const lista = document.getElementById('analiza-lista');
+  if (lista) lista.hidden = true;
+});
+
 async function api(cale, optiuni) {
   const r = await fetch(cale, optiuni);
   const tip = r.headers.get('content-type') || '';
@@ -222,15 +253,23 @@ const ic = (cale, marime) => `<svg width="${marime||18}" height="${marime||18}" 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const banii = (n) => (Number(n) || 0).toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+const TABURI_ANALIZA = ['completitudine', 'executie', 'istoric', 'cantitati'];
 function antet(tabActiv, proiectId, numeProiect) {
+  const inAnaliza = TABURI_ANALIZA.includes(tabActiv);
   const taburi = proiectId ? `
+    <div class="meniu-i buton-inapoi" onclick="navigheaza('/')">${ic('<path d="M19 12H5M12 19l-7-7 7-7"/>', 16)} Proiectele mele</div>
     <div class="meniu-i ${tabActiv==='revizuire'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/revizuire')">Revizuire</div>
     <div class="meniu-i ${tabActiv==='preturi'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/preturi')">Prețuire</div>
     <div class="meniu-i ${tabActiv==='deviz'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/deviz')">Deviz</div>
-    <div class="meniu-i ${tabActiv==='completitudine'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/completitudine')">Completitudine</div>
-    <div class="meniu-i ${tabActiv==='executie'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/executie')">Execuție</div>
-    <div class="meniu-i ${tabActiv==='istoric'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/istoric')">Istoric prețuri</div>
-    <div class="meniu-i ${tabActiv==='cantitati'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/cantitati')">Cantități PT</div>
+    <div class="meniu-i meniu-analiza ${inAnaliza?'activ':''}" onclick="window.__toggleAnaliza(event)">
+      Analiză ${ic('<path d="M6 9l6 6 6-6"/>', 14)}
+      <div class="analiza-lista" id="analiza-lista" hidden>
+        <div class="analiza-optiune ${tabActiv==='completitudine'?'activa':''}" onclick="navigheaza('/proiect/${proiectId}/completitudine')">Completitudine</div>
+        <div class="analiza-optiune ${tabActiv==='executie'?'activa':''}" onclick="navigheaza('/proiect/${proiectId}/executie')">Execuție</div>
+        <div class="analiza-optiune ${tabActiv==='istoric'?'activa':''}" onclick="navigheaza('/proiect/${proiectId}/istoric')">Istoric prețuri</div>
+        <div class="analiza-optiune ${tabActiv==='cantitati'?'activa':''}" onclick="navigheaza('/proiect/${proiectId}/cantitati')">Cantități PT</div>
+      </div>
+    </div>
     <div class="meniu-proiect">${esc(numeProiect||'')}</div>
   ` : `
     <div class="meniu-i ${tabActiv==='proiecte'?'activ':''}" onclick="navigheaza('/')">Proiecte</div>

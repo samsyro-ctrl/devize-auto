@@ -111,9 +111,16 @@ function gasesteFaza(capitol) {
 /**
  * @param {number} proiectId
  * @param {string[]} avertismente
+ * @param {number} [firmaId] -- optional, DOAR pentru public-server.js: cand e
+ *   dat, pretul se cauta in cache-ul firmei (preturi_curente_firma), nu in
+ *   cel global/intern. Fara el (apelul normal, din panou.js/cli.js),
+ *   comportamentul e neschimbat. Fix real (17.09.2026, portare pagina
+ *   "Executie" spre platforma publica): fara asta, valorile calculate ar fi
+ *   iesit din cache-ul INTERN, nu din preturile negociate ale firmei -- vezi
+ *   acelasi tipar deja aplicat in deviz.js (valoareLinie).
  * @returns {Array<{capitol, faza, oreManopera, valoare:{materiale,manopera,utilaj,transport,total}, linii}>}
  */
-function agregaPeCapitol(proiectId, avertismente) {
+function agregaPeCapitol(proiectId, avertismente, firmaId) {
   const linii = db.liniiCuRezolutiiPeProiect(proiectId);
   const peCapitol = new Map();
   let neconfirmate = 0;
@@ -152,7 +159,7 @@ function agregaPeCapitol(proiectId, avertismente) {
       continue; // eslint-disable-line no-continue
     }
     for (const frunza of reteta.values()) {
-      const pret = db.pretCurent(frunza.colectie, frunza.cod) || 0;
+      const pret = (firmaId ? db.pretCurentFirma(firmaId, frunza.colectie, frunza.cod) : db.pretCurent(frunza.colectie, frunza.cod)) || 0;
       const valoare = frunza.cantitateTotala * pret;
       if (frunza.tip === TIP_MANOPERA) { grup.oreManopera += frunza.cantitateTotala; grup.valoare.manopera += valoare; } else if (frunza.tip === TIP_MATERIALE) grup.valoare.materiale += valoare;
       else if (frunza.tip === TIP_UTILAJ) grup.valoare.utilaj += valoare;
@@ -173,12 +180,13 @@ function agregaPeCapitol(proiectId, avertismente) {
 /**
  * Construieste planul de executie complet pentru un proiect.
  * @param {number} proiectId
- * @param {{marimeEchipa?: number, dataInceput?: Date}} [optiuni]
+ * @param {{marimeEchipa?: number, dataInceput?: Date, firmaId?: number}} [optiuni]
+ *   firmaId -- vezi comentariul din agregaPeCapitol.
  * @returns {{activitati, durataTotalaZile, drumCritic, curbaS, avertismente}}
  */
 function construiestePlanExecutie(proiectId, optiuni = {}) {
   const avertismente = [];
-  const grupuri = agregaPeCapitol(proiectId, avertismente);
+  const grupuri = agregaPeCapitol(proiectId, avertismente, optiuni.firmaId);
   if (!grupuri.length) throw new Error(`Proiectul ${proiectId} n-are nicio linie cu potrivire de nomenclator -- nimic de planificat.`);
 
   const faraFaza = grupuri.filter((g) => g.faza === null).length;

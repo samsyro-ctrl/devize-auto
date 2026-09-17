@@ -33,6 +33,9 @@ const descompunere = require('./src/descompunere');
 const deviz = require('./src/deviz');
 const bfla = require('./src/bfla');
 const rfq = require('./src/rfq');
+const completitudine = require('./src/completitudine');
+const planExecutie = require('./src/planExecutie');
+const istoricArticole = require('./src/istoricArticole');
 const { slug } = require('./src/util');
 const firmePublic = require('./src/firmePublic');
 
@@ -46,6 +49,9 @@ const OUTPUT_DIR = path.join(RADACINA, 'output');
 // publica, oricat de veche, nu vede vreodata pagina asta.
 const EMAIL_PROPRIETAR = (process.env.EMAIL_PROPRIETAR_DEVIZE || '').toLowerCase();
 let cacheModeleOR = { la: 0, lista: [] };
+// Stare intermediara pt "cantitati-pt" (Robot A/B/C/D) intre cele doua
+// cereri HTTP -- acelasi tipar ca panou.js:57, proces separat, cache separat.
+const CACHE_CANTITATI_PT = new Map();
 const ETICHETE_ROL_MODEL = {
   MODEL_EXTRAGERE: 'Extragere linii din antemăsurătoare',
   MODEL_SCOP: 'Extragere scop proiect (produs, activități)',
@@ -366,6 +372,135 @@ const server = http.createServer(async (req, res) => {
         'Content-Disposition': `attachment; filename="${path.basename(cale)}"`,
       });
       return fs.createReadStream(cale).pipe(res);
+    }
+
+    // ─── Completitudine / Executie / Istoric preturi / Cantitati PT ───
+    // Portate din panou.js (intern), 17.09.2026 -- lipseau complet din
+    // platforma publica pana acum (Cristian: "pagina nu e finalizata",
+    // corect -- 4 pagini deja construite intern n-au ajuns niciodata aici).
+    // Acelasi tipar de mai sus: verificare *SiFirma inainte de orice,
+    // logica de business IDENTICA cu panou.js (fara AI pe GET, cost real
+    // doar pe POST-uri explicite, niciodata implicit la vizitarea paginii).
+
+    const mCompletitudine = p.match(/^\/api\/proiecte\/(\d+)\/completitudine$/);
+    if (mCompletitudine && req.method === 'GET') {
+      const proiectId = Number(mCompletitudine[1]);
+      const proiect = db.proiectDupaIdSiFirma(proiectId, firmaId);
+      if (!proiect) return json(res, { eroare: 'proiect inexistent' }, 404);
+      let scop = null;
+      try { scop = proiect.scop_json ? JSON.parse(proiect.scop_json) : null; } catch { /* scop lipsa/invalid -- ramane null */ }
+      return json(res, {
+        verificari: db.verificariCompletitudinePeProiect(proiectId),
+        produs: scop?.produs || null,
+        nivelLivrare: scop?.nivel_livrare || null,
+        areScop: !!scop,
+      });
+    }
+    if (mCompletitudine && req.method === 'POST') {
+      const proiectId = Number(mCompletitudine[1]);
+      if (!db.proiectDupaIdSiFirma(proiectId, firmaId)) return json(res, { eroare: 'proiect inexistent' }, 404);
+      try {
+        const rezultat = await completitudine.verificaCompletitudine(proiectId);
+        return json(res, rezultat);
+      } catch (e) {
+        return json(res, { eroare: e.message }, 422);
+      }
+    }
+
+    // "Executie" -- calcul LIVE, fara AI, dar cu firmaId (vezi src/planExecutie.js)
+    // ca valorile sa iasa din preturile FIRMEI, nu din cache-ul intern.
+    const mExecutie = p.match(/^\/api\/proiecte\/(\d+)\/executie$/);
+    if (mExecutie && req.method === 'GET') {
+      const proiectId = Number(mExecutie[1]);
+      if (!db.proiectDupaIdSiFirma(proiectId, firmaId)) return json(res, { eroare: 'proiect inexistent' }, 404);
+      try {
+        return json(res, planExecutie.construiestePlanExecutie(proiectId, { firmaId }));
+      } catch (e) {
+        return json(res, { eroare: e.message }, 422);
+      }
+    }
+
+    const mReferinte = p.match(/^\/api\/proiecte\/(\d+)\/referinte-istorice$/);
+    if (mReferinte && req.method === 'GET') {
+      const proiectId = Number(mReferinte[1]);
+      if (!db.proiectDupaIdSiFirma(proiectId, firmaId)) return json(res, { eroare: 'proiect inexistent' }, 404);
+      let linii = db.liniiCuRezolutiiPeProiect(proiectId);
+      const linieId = u.searchParams.get('linieId');
+      if (linieId) linii = linii.filter((l) => l.id === Number(linieId));
+      const rezultate = linii.map((l) => ({
+        linieId: l.id,
+        ordine: l.ordine,
+        denumire: l.denumire,
+        capitol: l.capitol,
+        cantitate: l.cantitate,
+        unitate: l.unitate,
+        referinte: istoricArticole.gasesteReferintaIstorica({ denumire: l.denumire, capitol: l.capitol, cod: l.cod }, 3),
+      }));
+      return json(res, { rezultate });
+    }
+
+    const mCantitatiPT = p.match(/^\/api\/proiecte\/(\d+)\/cantitati-pt$/);
+    if (mCantitatiPT && req.method === 'GET') {
+      const proiectId = Number(mCantitatiPT[1]);
+      if (!db.proiectDupaIdSiFirma(proiectId, firmaId)) return json(res, { eroare: 'proiect inexistent' }, 404);
+      return json(res, { verificari: db.verificariCantitatiPTPeProiect(proiectId) });
+    }
+
+    const mCantitatiPTEstimare = p.match(/^\/api\/proiecte\/(\d+)\/cantitati-pt\/estimare$/);
+    if (mCantitatiPTEstimare && req.method === 'POST') {
+      const proiectId = Number(mCantitatiPTEstimare[1]);
+      const proiect = db.proiectDupaIdSiFirma(proiectId, firmaId);
+      if (!proiect) return json(res, { eroare: 'proiect inexistent' }, 404);
+      if (!proiect.cod_licitatie) {
+        return json(res, { eroare: 'Proiectul n-are cod de licitatie asociat (proiecte.cod_licitatie) -- necesar ca sa gaseasca documentele Proiectului Tehnic.' }, 422);
+      }
+      try {
+        const verificareCantitatiPT = require('./src/verificareCantitatiPT');
+        const avertismente = [];
+        const { documenteText, documenteDesenate } = await verificareCantitatiPT.gasesteDocumentePT(proiect.cod_licitatie, avertismente);
+        const cantitatiText = await verificareCantitatiPT.ruleazaRobotA(documenteText, avertismente);
+        let estimare = { paginiTotale: 0, esantion: null, costEstimatTotal: null };
+        if (documenteDesenate.length) {
+          estimare = await verificareCantitatiPT.estimeazaCostRobotB(documenteDesenate, avertismente);
+        }
+        CACHE_CANTITATI_PT.set(proiectId, {
+          documenteDesenate, cantitatiText, esantion: estimare.esantion, avertismente: [...avertismente],
+        });
+        return json(res, {
+          documenteText: documenteText.length,
+          documenteDesenate: documenteDesenate.length,
+          cantitatiGasiteText: cantitatiText.length,
+          paginiTotale: estimare.paginiTotale,
+          costEsantion: estimare.esantion?.costUsd ?? null,
+          costEstimatTotal: estimare.costEstimatTotal,
+          avertismente,
+        });
+      } catch (e) {
+        return json(res, { eroare: e.message }, 422);
+      }
+    }
+
+    const mCantitatiPTFinalizeaza = p.match(/^\/api\/proiecte\/(\d+)\/cantitati-pt\/finalizeaza$/);
+    if (mCantitatiPTFinalizeaza && req.method === 'POST') {
+      const proiectId = Number(mCantitatiPTFinalizeaza[1]);
+      if (!db.proiectDupaIdSiFirma(proiectId, firmaId)) return json(res, { eroare: 'proiect inexistent' }, 404);
+      const stare = CACHE_CANTITATI_PT.get(proiectId);
+      if (!stare) return json(res, { eroare: 'Nicio estimare in curs pentru acest proiect -- ruleaza intai estimarea.' }, 422);
+      const corp = await citesteCorp(req);
+      try {
+        const verificareCantitatiPT = require('./src/verificareCantitatiPT');
+        const avertismente = [...stare.avertismente];
+        let cantitatiDesen = stare.esantion ? stare.esantion.cantitati : [];
+        if (corp.ruleazaRobotB && stare.documenteDesenate.length) {
+          const restul = await verificareCantitatiPT.ruleazaRobotB(stare.documenteDesenate, avertismente, { sarePagina1Din: stare.esantion?.document });
+          cantitatiDesen = [...cantitatiDesen, ...restul];
+        }
+        const rezultat = await verificareCantitatiPT.reconciliazaSiCompara(proiectId, stare.cantitatiText, cantitatiDesen, avertismente);
+        CACHE_CANTITATI_PT.delete(proiectId);
+        return json(res, { comparatii: rezultat.comparatii, deVerificatManual: rezultat.deVerificatManual, avertismente });
+      } catch (e) {
+        return json(res, { eroare: e.message }, 422);
+      }
     }
 
     // ─── Administrare (STRICT firma-proprietar, vezi EMAIL_PROPRIETAR) ───

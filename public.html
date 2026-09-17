@@ -56,6 +56,16 @@
   .meniu-proiect b { color:var(--text); font-weight:650; }
   .meniu-proiect .iesire { cursor:pointer; color:var(--sters); }
   .meniu-proiect .iesire:hover { color:var(--nu); }
+  /* Buton explicit de intoarcere + meniu "Analiza" -- vezi panou.html
+     (acelasi CSS, aceeasi motivatie: feedback Cristian 17.09.2026, sigla
+     singura nu se citea ca navigare, 7 taburi plate fara ierarhie). */
+  .meniu-i.buton-inapoi { color:var(--accent); }
+  .meniu-analiza { position:relative; }
+  .analiza-lista { position:absolute; top:calc(100% + 6px); left:0; z-index:30; min-width:200px;
+    background:var(--warm-1000); border:1px solid var(--linie); border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.5); padding:6px; }
+  .analiza-optiune { padding:10px 12px; border-radius:8px; font-size:13.5px; font-weight:600; color:var(--sters); cursor:pointer; }
+  .analiza-optiune:hover { background:var(--glass-tare); color:var(--text); }
+  .analiza-optiune.activa { color:var(--accent); }
   main { max-width:1400px; margin:0 auto; padding:26px 22px 60px; }
 
   h1 { font-family:var(--font-display); font-size:24px; font-weight:800; margin:0 0 4px; letter-spacing:-.01em; }
@@ -188,6 +198,17 @@ function segmenteRuta() { return (location.hash.replace(/^#\/?/, '') || '').spli
 function navigheaza(ruta) { location.hash = ruta; }
 window.addEventListener('hashchange', redeseneaza);
 
+window.__toggleAnaliza = (e) => {
+  e.stopPropagation();
+  const lista = document.getElementById('analiza-lista');
+  if (lista) lista.hidden = !lista.hidden;
+};
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.meniu-analiza')) return;
+  const lista = document.getElementById('analiza-lista');
+  if (lista) lista.hidden = true;
+});
+
 // ─── Instalare ca aplicatie (PWA) ───────────────────────────────────────────
 // Tab-ul "Instalare" din Administrare arata DOAR instructiuni statice (desktop
 // + mobil deodata) -- nu mai incearca beforeinstallprompt (dus la o confuzie:
@@ -235,10 +256,22 @@ window.__comutaParola = (id) => {
 };
 
 function antet(tabActiv, proiectId, numeProiect) {
+  const TABURI_ANALIZA = ['completitudine', 'executie', 'istoric', 'cantitati'];
+  const inAnaliza = TABURI_ANALIZA.includes(tabActiv);
   const taburi = proiectId ? `
+    <div class="meniu-i buton-inapoi" onclick="navigheaza('/')">${ic('<path d="M19 12H5M12 19l-7-7 7-7"/>', 16)} Proiectele mele</div>
     <div class="meniu-i ${tabActiv==='revizuire'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/revizuire')">Revizuire</div>
     <div class="meniu-i ${tabActiv==='preturi'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/preturi')">Prețuire</div>
     <div class="meniu-i ${tabActiv==='deviz'?'activ':''}" onclick="navigheaza('/proiect/${proiectId}/deviz')">Deviz</div>
+    <div class="meniu-i meniu-analiza ${inAnaliza?'activ':''}" onclick="window.__toggleAnaliza(event)">
+      Analiză ${ic('<path d="M6 9l6 6 6-6"/>', 14)}
+      <div class="analiza-lista" id="analiza-lista" hidden>
+        <div class="analiza-optiune ${tabActiv==='completitudine'?'activa':''}" onclick="navigheaza('/proiect/${proiectId}/completitudine')">Completitudine</div>
+        <div class="analiza-optiune ${tabActiv==='executie'?'activa':''}" onclick="navigheaza('/proiect/${proiectId}/executie')">Execuție</div>
+        <div class="analiza-optiune ${tabActiv==='istoric'?'activa':''}" onclick="navigheaza('/proiect/${proiectId}/istoric')">Istoric prețuri</div>
+        <div class="analiza-optiune ${tabActiv==='cantitati'?'activa':''}" onclick="navigheaza('/proiect/${proiectId}/cantitati')">Cantități PT</div>
+      </div>
+    </div>
     <div class="meniu-proiect"><span>${esc(numeProiect||'')}</span>${firtaAntet()}</div>
   ` : `
     <div class="meniu-i ${tabActiv==='proiecte'?'activ':''}" onclick="navigheaza('/')">Proiecte</div>
@@ -633,6 +666,242 @@ async function paginaDeviz(proiectId) {
     </main>`);
 }
 
+// ─── Pagina: completitudine (Caz A/B -- activitati lipsa/partiale) ─────────
+async function paginaCompletitudine(proiectId) {
+  app(antet('completitudine', proiectId) + `<main><div class="incarcare">Se încarcă...</div></main>`);
+  let proiect, date;
+  try {
+    proiect = (await api(`/api/proiecte/${proiectId}`)).proiect;
+    date = await api(`/api/proiecte/${proiectId}/completitudine`);
+  } catch (e) { return eroareGenerala(e); }
+
+  function randare(stareSpeciala) {
+    if (!date.areScop) {
+      app(antet('completitudine', proiectId, proiect.nume) + `
+        <main><h1>Completitudine</h1>
+        <div class="gol">Proiectul n-are scop extras din documentație (produs/nivel de livrare/activități) --
+        rulează "importa-licitatie" sau completează manual proiecte.scop_json.</div></main>`);
+      return;
+    }
+
+    const v = date.verificari || [];
+    const acoperite = v.filter((x) => x.stare === 'acoperita').length;
+    const partiale = v.filter((x) => x.stare === 'partial');
+    const lipsa = v.filter((x) => x.stare === 'lipsa');
+
+    app(antet('completitudine', proiectId, proiect.nume) + `
+      <main>
+        <div class="titlu-pag">
+          <div><h1>Completitudine</h1><p class="sub" style="margin:0">${esc(date.produs||'')}${date.nivelLivrare ? ' · ' + esc(date.nivelLivrare) : ''}</p></div>
+          <button class="btn primar" ${stareSpeciala==='ruleaza'?'disabled':''} onclick="window.__ruleazaCompletitudine()">
+            ${stareSpeciala==='ruleaza' ? 'Se verifică...' : (v.length ? 'Rulează din nou' : 'Rulează verificarea')}
+          </button>
+        </div>
+        ${stareSpeciala==='eroare' ? `<div class="eroare-banda">${esc(window.__eroareCompletitudine||'')}</div>` : ''}
+        ${!v.length && stareSpeciala!=='ruleaza' ? `<div class="gol">Nicio verificare rulată încă -- apasă "Rulează verificarea" (cost real, un apel AI).</div>` : ''}
+        ${v.length ? `
+          <div class="rezumat">
+            <div class="tile"><b>${acoperite}</b><span>Acoperite</span></div>
+            <div class="tile"><b>${partiale.length}</b><span>Parțiale</span></div>
+            <div class="tile"><b>${lipsa.length}</b><span>Lipsă</span></div>
+          </div>
+          ${lipsa.length ? `<p class="lateral-titlu">Lipsă din deviz</p>${lipsa.map((x) => `
+            <div class="linie-card"><p class="linie-denumire">${esc(x.activitate)}</p>
+            <div class="avertisment">${ic('<path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/>', 15)}${esc(x.detaliu||'')}</div></div>`).join('')}` : ''}
+          ${partiale.length ? `<p class="lateral-titlu">Parțiale</p>${partiale.map((x) => `
+            <div class="linie-card"><p class="linie-denumire">${esc(x.activitate)}</p>
+            <p class="sub" style="margin:0">${esc(x.detaliu||'')}</p></div>`).join('')}` : ''}
+        ` : ''}
+      </main>`);
+  }
+
+  window.__ruleazaCompletitudine = async () => {
+    randare('ruleaza');
+    try {
+      const r = await api(`/api/proiecte/${proiectId}/completitudine`, { method: 'POST' });
+      date = { ...date, verificari: r.verificari, produs: r.produs, nivelLivrare: r.nivel_livrare };
+      randare();
+    } catch (e) {
+      window.__eroareCompletitudine = e.message;
+      randare('eroare');
+    }
+  };
+
+  randare();
+}
+
+// ─── Pagina: plan de executie (WBS/CPM/curba S) -- calcul gratuit, live ────
+async function paginaExecutie(proiectId) {
+  app(antet('executie', proiectId) + `<main><div class="incarcare">Se încarcă...</div></main>`);
+  let proiect, plan;
+  try {
+    proiect = (await api(`/api/proiecte/${proiectId}`)).proiect;
+    plan = await api(`/api/proiecte/${proiectId}/executie`);
+  } catch (e) { return eroareGenerala(e); }
+
+  const activitatiHtml = plan.activitati.map((a) => `
+    <div class="linie-card">
+      <p class="linie-denumire">${esc(a.capitol)} ${a.peDrumulCritic ? '<span class="capitol-chip" style="background:var(--nu-f);color:var(--nu);margin-left:6px">drum critic</span>' : ''}</p>
+      <div class="linie-meta">
+        <span>${a.fazaNume ? esc(a.fazaNume) : 'fără fază detectată'}</span><span>·</span>
+        <span>${a.durataZile} zile ${a.esd != null ? `(zilele ${a.esd+1}-${a.efd})` : '(neancorat)'}</span><span>·</span>
+        <span>${Math.round(a.oreManopera)} ore manoperă</span><span>·</span>
+        <span>${banii(a.valoare.total)} lei</span>
+      </div>
+    </div>`).join('');
+
+  app(antet('executie', proiectId, proiect.nume) + `
+    <main>
+      <h1>Plan de execuție</h1>
+      <p class="sub">WBS + durate + dependințe pe fază de construcție + drum critic -- dedus din devizul curent (linii "auto"/"confirmat" DOAR).</p>
+      <div class="rezumat">
+        <div class="tile"><b>${plan.durataTotalaZile}</b><span>Zile lucrătoare</span></div>
+        <div class="tile"><b>${plan.drumCritic.length}</b><span>Capitole pe drum critic</span></div>
+        <div class="tile"><b>${plan.activitati.length}</b><span>Capitole în plan</span></div>
+      </div>
+      ${plan.avertismente && plan.avertismente.length ? plan.avertismente.map((a) => `<div class="eroare-banda" style="background:var(--poate-f);color:var(--poate)">${esc(a)}</div>`).join('') : ''}
+      ${activitatiHtml}
+    </main>`);
+}
+
+// ─── Pagina: referinte istorice de pret (F3, devize castigatoare) ─────────
+async function paginaIstoric(proiectId) {
+  app(antet('istoric', proiectId) + `<main><div class="incarcare">Se încarcă...</div></main>`);
+  let proiect, date;
+  try {
+    proiect = (await api(`/api/proiecte/${proiectId}`)).proiect;
+    date = await api(`/api/proiecte/${proiectId}/referinte-istorice`);
+  } catch (e) { return eroareGenerala(e); }
+
+  let arataToate = false;
+  function randare() {
+    const toate = date.rezultate;
+    const cuReferinta = toate.filter((r) => r.referinte.length);
+    const vizibile = arataToate ? toate : cuReferinta;
+
+    const randuri = vizibile.map((r) => {
+      const ref = r.referinte[0];
+      return `<div class="linie-card">
+        <p class="linie-denumire">#${r.ordine} ${esc(r.denumire)}</p>
+        <div class="linie-meta"><span>${r.cantitate} ${esc(r.unitate)}</span><span class="capitol-chip">${esc(r.capitol||'Nespecificat')}</span></div>
+        ${ref ? `
+          <div class="rezolvat" style="opacity:1;background:var(--glass-tare);border-radius:10px">
+            ${ic('<path d="M5 13l4 4L19 7"/>', 15)}
+            <b>[${esc(ref.proiect)}] ${esc(ref.denumire)}</b>
+            <span>${ref.pret_unitar} lei/${esc(ref.unitate||'?')}${r.referinte.length>1?` · +${r.referinte.length-1} alt(e)`:''}</span>
+          </div>` : `<p class="sub" style="margin:0">Nicio referință istorică găsită.</p>`}
+      </div>`;
+    }).join('');
+
+    app(antet('istoric', proiectId, proiect.nume) + `
+      <main>
+        <div class="titlu-pag">
+          <div><h1>Istoric prețuri</h1><p class="sub" style="margin:0">${cuReferinta.length}/${toate.length} linii cu precedent găsit (devize câștigătoare, F3)</p></div>
+          <button class="btn" onclick="window.__toggleIstoric()">${arataToate ? 'Arată doar cu referință' : `Arată toate (${toate.length})`}</button>
+        </div>
+        ${vizibile.length ? randuri : '<div class="gol">Nicio linie de arătat.</div>'}
+      </main>`);
+  }
+
+  window.__toggleIstoric = () => { arataToate = !arataToate; randare(); };
+  randare();
+}
+
+// ─── Pagina: verificare cantitati (Robot A/B/C/D, Proiect Tehnic) ──────────
+// 2 pasi, cu poarta de cost explicita pt Robotul B (vedere) -- port pe web al
+// fluxului readline din CLI (verifica-cantitati-pt), acelasi principiu:
+// Robot A + esantionul Robotului B ruleaza fara gate (cost modest), DAR restul
+// paginilor Robotului B cere o alegere explicita a omului, cu costul real
+// aratat (nu inventat -- vine dintr-o pagina-esantion chiar procesata).
+function randComparatiiCantitati(comparatii, avertismente) {
+  const suf = comparatii.filter((c) => c.stare === 'suficienta');
+  const insuf = comparatii.filter((c) => c.stare === 'insuficienta');
+  const fara = comparatii.filter((c) => c.stare === 'fara_corespondent');
+  return `
+    <div class="rezumat">
+      <div class="tile"><b>${suf.length}</b><span>Suficiente</span></div>
+      <div class="tile"><b>${insuf.length}</b><span>Insuficiente</span></div>
+      <div class="tile"><b>${fara.length}</b><span>Fără corespondent</span></div>
+    </div>
+    ${insuf.length ? `<p class="lateral-titlu">Cantitate insuficientă</p>${insuf.map((c) => `
+      <div class="linie-card"><p class="linie-denumire">${esc(c.activitate)}</p>
+      <div class="avertisment">${ic('<path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/>', 15)}
+      țintă ${c.cantitateTinta} ${esc(c.unitateTinta)}, în deviz ${c.cantitateDeviz} -- ${esc(c.motiv || '')}</div></div>`).join('')}` : ''}
+    ${fara.length ? `<p class="lateral-titlu">Fără corespondent în deviz</p>${fara.map((c) => `
+      <div class="linie-card"><p class="linie-denumire">${esc(c.activitate)}</p>
+      <p class="sub" style="margin:0">țintă ${c.cantitateTinta} ${esc(c.unitateTinta)}${c.motiv ? ' -- ' + esc(c.motiv) : ''}</p></div>`).join('')}` : ''}
+    ${avertismente && avertismente.length ? avertismente.map((a) => `<div class="eroare-banda" style="background:var(--poate-f);color:var(--poate)">${esc(a)}</div>`).join('') : ''}
+  `;
+}
+
+async function paginaCantitati(proiectId) {
+  app(antet('cantitati', proiectId) + `<main><div class="incarcare">Se încarcă...</div></main>`);
+  let proiect, salvate;
+  try {
+    proiect = (await api(`/api/proiecte/${proiectId}`)).proiect;
+    salvate = await api(`/api/proiecte/${proiectId}/cantitati-pt`);
+  } catch (e) { return eroareGenerala(e); }
+
+  let estimare = null;
+
+  function randare(stareSpeciala) {
+    const comparatiiSalvate = (salvate.verificari || []).map((v) => ({
+      activitate: v.activitate, cantitateTinta: v.cantitate_tinta, unitateTinta: v.unitate_tinta,
+      stare: v.stare, cantitateDeviz: v.cantitate_deviz, motiv: v.motiv,
+    }));
+
+    app(antet('cantitati', proiectId, proiect.nume) + `
+      <main>
+        <div class="titlu-pag">
+          <div><h1>Cantități (Proiect Tehnic)</h1><p class="sub" style="margin:0">Compară cantitățile din deviz cu ce a calculat/desenat proiectantul</p></div>
+          ${!estimare ? `<button class="btn primar" ${stareSpeciala==='estimeaza'?'disabled':''} onclick="window.__estimeazaCant()">${stareSpeciala==='estimeaza' ? 'Analizez...' : (comparatiiSalvate.length ? 'Rulează din nou' : 'Rulează analiza')}</button>` : ''}
+        </div>
+        ${stareSpeciala==='eroare' ? `<div class="eroare-banda">${esc(window.__eroareCantitati||'')}</div>` : ''}
+        ${!estimare && !comparatiiSalvate.length && stareSpeciala!=='estimeaza' ? '<div class="gol">Nicio verificare rulată încă -- apasă "Rulează analiza" (cost real: Robot A + un eșantion din Robot B).</div>' : ''}
+
+        ${estimare ? `
+          <div class="linie-card">
+            <p class="linie-denumire">Robot A: ${estimare.cantitatiGasiteText} cantități găsite din piese scrise.</p>
+            ${estimare.paginiTotale ? `
+              <p class="sub" style="margin:6px 0 0">Robot B (vedere, piese desenate) -- eșantion testat: cost real $${estimare.costEsantion ?? '?'}.
+              Total de procesat: ${estimare.paginiTotale} pagini${estimare.costEstimatTotal!=null?` -- estimat ~$${estimare.costEstimatTotal}`:' (estimat indisponibil)'}.</p>
+              <div style="display:flex;gap:10px;margin-top:14px">
+                <button class="btn primar" ${stareSpeciala==='finalizeaza'?'disabled':''} onclick="window.__finalizeazaCant(true)">Continuă analiza completă${estimare.costEstimatTotal!=null?` (~$${estimare.costEstimatTotal})`:''}</button>
+                <button class="btn" ${stareSpeciala==='finalizeaza'?'disabled':''} onclick="window.__finalizeazaCant(false)">Analizează doar cu eșantionul</button>
+              </div>
+            ` : `
+              <p class="sub" style="margin:6px 0 0">Niciun document cu piese desenate găsit.</p>
+              <button class="btn primar" style="margin-top:14px" ${stareSpeciala==='finalizeaza'?'disabled':''} onclick="window.__finalizeazaCant(false)">Continuă (compară cu devizul)</button>
+            `}
+          </div>
+        ` : ''}
+
+        ${comparatiiSalvate.length && !estimare ? randComparatiiCantitati(comparatiiSalvate, []) : ''}
+      </main>`);
+  }
+
+  window.__estimeazaCant = async () => {
+    randare('estimeaza');
+    try {
+      estimare = await api(`/api/proiecte/${proiectId}/cantitati-pt/estimare`, { method: 'POST' });
+      randare();
+    } catch (e) { window.__eroareCantitati = e.message; estimare = null; randare('eroare'); }
+  };
+
+  window.__finalizeazaCant = async (ruleazaRobotB) => {
+    randare('finalizeaza');
+    try {
+      const r = await api(`/api/proiecte/${proiectId}/cantitati-pt/finalizeaza`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ruleazaRobotB }),
+      });
+      estimare = null;
+      app(antet('cantitati', proiectId, proiect.nume) + `<main><h1>Cantități (Proiect Tehnic)</h1>${randComparatiiCantitati(r.comparatii, r.avertismente)}</main>`);
+    } catch (e) { window.__eroareCantitati = e.message; randare('eroare'); }
+  };
+
+  randare();
+}
+
 // ─── Pagina: administrare (model per task, STRICT firma-proprietar) ────────
 // Doua tab-uri: "Modele AI" (continutul de baza) si "Instalare" (doar
 // instructiuni statice, desktop + mobil deodata -- niciun continut comun
@@ -794,6 +1063,10 @@ async function redeseneaza() {
     const tab = seg[2] || 'revizuire';
     if (tab === 'preturi') return paginaPreturi(id);
     if (tab === 'deviz') return paginaDeviz(id);
+    if (tab === 'completitudine') return paginaCompletitudine(id);
+    if (tab === 'executie') return paginaExecutie(id);
+    if (tab === 'istoric') return paginaIstoric(id);
+    if (tab === 'cantitati') return paginaCantitati(id);
     return paginaRevizuire(id);
   }
   return paginaProiecte();
