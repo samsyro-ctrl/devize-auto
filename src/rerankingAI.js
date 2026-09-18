@@ -34,6 +34,26 @@ const { cheama } = require('./ai');
 const { conexiune, incarcaAreDescompunere, gasesteCandidati, detaliiPtCandidati } = require('./rerankingPostgres');
 
 const N_CANDIDATI = parseInt(process.env.N_CANDIDATI_RERANKING || '20', 10);
+// Acelasi tipar deja folosit la transcriereVizuala.js (4 in paralel,
+// "~4x castig confirmat real") -- fara el, un proiect de mii de linii ar
+// dura ore la ~10s/linie secvential (masurat real la primul test, 18.09.2026).
+const CONCURENTA = parseInt(process.env.CONCURENTA_RERANKING || '4', 10);
+
+/** Ruleaza taskuri cu concurenta limitata, pastrand ordinea rezultatelor. */
+async function ruleazaCuConcurenta(taskuri, concurenta) {
+  const rezultate = new Array(taskuri.length);
+  let urmatorulIndex = 0;
+  async function worker() {
+    while (urmatorulIndex < taskuri.length) {
+      const i = urmatorulIndex;
+      urmatorulIndex += 1;
+      rezultate[i] = await taskuri[i]();
+    }
+  }
+  const numarWorkeri = Math.max(1, Math.min(concurenta, taskuri.length));
+  await Promise.all(Array.from({ length: numarWorkeri }, worker));
+  return rezultate;
+}
 
 const SCHEMA = {
   type: 'object',
@@ -123,16 +143,21 @@ async function genereazaSugestiiRerank(proiectId, { limit } = {}) {
     procesate: 0, sugerate: 0, faraSchimbare: 0, faraCandidati: 0, avertismente: [],
   };
 
-  for (const linie of linii) {
-    let rezultat;
+  const taskuri = linii.map((linie) => async () => {
     try {
-      // eslint-disable-next-line no-await-in-loop
-      rezultat = await sugereazaPentruLinie(pg, areDescompunere, linie);
+      const rezultat = await sugereazaPentruLinie(pg, areDescompunere, linie);
+      return { linie, rezultat };
     } catch (e) {
-      stare.avertismente.push(`Linia ${linie.id}: ${e.message}`);
+      return { linie, eroare: e.message };
+    }
+  });
+  const rezultate = await ruleazaCuConcurenta(taskuri, CONCURENTA);
+
+  for (const { linie, rezultat, eroare } of rezultate) {
+    if (eroare) {
+      stare.avertismente.push(`Linia ${linie.id}: ${eroare}`);
       continue; // eslint-disable-line no-continue
     }
-
     stare.procesate += 1;
     if (rezultat.rezultat === 'fara_candidati' || rezultat.rezultat === 'index_invalid') {
       stare.faraCandidati += 1;
