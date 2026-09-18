@@ -77,7 +77,13 @@ async function sugereazaPentruLinie(pg, areDescompunere, linie) {
   const resp = await cheama({
     model: process.env.MODEL_RERANKING_AI || 'openai/gpt-5-mini',
     rol: 'MODEL_RERANKING_AI',
-    max_tokens: 500,
+    // 500 s-a dovedit prea mic REAL (linia 741, testat 18.09.2026) --
+    // gpt-5-mini (model de rationament) poate consuma bugetul de tokeni pe
+    // rationament intern inainte sa scrie JSON-ul vizibil, chiar la un
+    // raspuns scurt. 2000 e generos fata de raspunsul asteptat (<100
+    // tokeni), acopera rationamentul ascuns fara sa umfle costul relevant
+    // (costul e dominat de promptul cu candidati, nu de acest plafon).
+    max_tokens: 2000,
     messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
     output_config: { format: { type: 'json_schema', schema: SCHEMA } },
   }, 'reranking-ai');
