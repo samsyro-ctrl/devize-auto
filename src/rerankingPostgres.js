@@ -87,6 +87,22 @@ async function gasesteCandidati(pg, denumire, areDescompunere, { limit = 20, lim
   for (const a of bruti) {
     if (a.tip != null) continue; // exclude articole-frunza
     if (a.cod.endsWith('#')) continue; // exclude coduri tehnice
+    // Gasit real (18.09.2026, prima rulare pe SCN1179715 -- 551/3077 linii
+    // afectate): coduri "..__1" sunt WRAPPERE SINTETICE legacy in jurul unei
+    // resurse-frunza brute (ex. TRA01A05P__1 decompune in TRA01A05P insusi,
+    // cantitate 1, + o urma 0.00001 dintr-un cod nelegat) -- pret NULL pe
+    // 10.790/10.807 din ele in tot nomenclatorul, aproape toate. NU sunt
+    // rezultate valide de match: src/descompunere.js (fix 14.09.2026,
+    // gasit real pe SCN1178517) trateaza deja o resursa-frunza (tip!=null,
+    // exclusa mai sus) potrivita DIRECT ca linie -- ca reteta proprie de 1
+    // unitate din ea insasi, fara sa aiba nevoie de niciun wrapper sintetic.
+    // Filtrul de mai sus (tip!=null + areDescompunere) mostenit din
+    // gaseste-candidati-postgres.js exclude corect resursele brute directe,
+    // dar include gresit acesti wrapperi __N -- AI-ul ii alegea cu incredere
+    // "ridicata" (descriere identica), o sugestie sterila (acelasi rezultat
+    // final de pret, prin doi pasi in loc de unul, plus urma 0.00001 fara
+    // sens), niciodata o corectie reala.
+    if (a.cod.includes('__')) continue;
     if (!areDescompunere.has(`${a.colectie}${a.cod}`)) continue;
     candidati.push({ colectie: a.colectie, cod: a.cod });
     if (candidati.length >= limit) break;
