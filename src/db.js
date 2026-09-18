@@ -319,6 +319,19 @@ function deschide(outputDir, numeFisier = 'devize.db') {
   adaugaColoana('rezolutii_matching', 'sugestie_index', 'INTEGER');
   adaugaColoana('rezolutii_matching', 'sugestie_motiv', 'TEXT');
 
+  // Sugestie AI g1 (src/rerankingAI.js, 18.09.2026, Cristian confirmat
+  // direct) -- COLOANE SEPARATE de sugestie_index/sugestie_motiv de mai sus,
+  // deliberat: aceea alege STRICT dintre candidatii deja cache-uiti de bm25
+  // (candidati_json), un index e suficient. Asta cauta in TOT nomenclatorul
+  // via Postgres (retrieval mai larg, vezi rerankingPostgres.js) -- poate
+  // gasi un candidat care nu exista deloc in candidati_json, deci trebuie
+  // colectie+cod direct, nu un index. Tot STRICT sugestie -- NU atinge
+  // stare/colectie/cod, om confirma sau respinge, la fel ca la sugestia veche.
+  adaugaColoana('rezolutii_matching', 'sugestie_rerank_colectie', 'TEXT');
+  adaugaColoana('rezolutii_matching', 'sugestie_rerank_cod', 'TEXT');
+  adaugaColoana('rezolutii_matching', 'sugestie_rerank_incredere', 'TEXT');
+  adaugaColoana('rezolutii_matching', 'sugestie_rerank_motiv', 'TEXT');
+
   // Suprascrieri de model per task (vezi src/ai.js, cheama()) -- acelasi
   // tipar ca in recrutare-bot. "rol" e una din cele 3 chei fixe (ROLURI_MODEL,
   // mai jos), acelasi nume ca variabila din .env pe care o suprascrie. Fara
@@ -503,10 +516,20 @@ function confirmaRezolutie(linieId, colectie, cod) {
 /** Liniile unui proiect, cu rezolutia lor de matching alaturata (LEFT JOIN --
  * o linie fara nicio rezolutie inca tot trebuie sa apara, cu stare NULL). */
 const liniiCuRezolutiiPeProiect = (proiectId) => db.prepare(`
-  SELECT l.*, r.colectie, r.cod, r.scor, r.stare, r.candidati_json, r.nota, r.sugestie_index, r.sugestie_motiv
+  SELECT l.*, r.colectie, r.cod, r.scor, r.stare, r.candidati_json, r.nota, r.sugestie_index, r.sugestie_motiv,
+    r.sugestie_rerank_colectie, r.sugestie_rerank_cod, r.sugestie_rerank_incredere, r.sugestie_rerank_motiv
   FROM antemasuratoare_linii l LEFT JOIN rezolutii_matching r ON r.linie_id = l.id
   WHERE l.proiect_id = ? ORDER BY l.ordine
 `).all(proiectId);
+
+/** Sugestie AI g1 (src/rerankingAI.js) -- vezi comentariul de la
+ * adaugaColoana mai sus. NU atinge stare/colectie/cod. */
+function salveazaSugestieRerank(linieId, colectie, cod, incredere, motiv) {
+  db.prepare(`UPDATE rezolutii_matching
+    SET sugestie_rerank_colectie = ?, sugestie_rerank_cod = ?, sugestie_rerank_incredere = ?, sugestie_rerank_motiv = ?
+    WHERE linie_id = ?`)
+    .run(colectie || null, cod || null, incredere || null, motiv || null, linieId);
+}
 
 // ─── Preturi curente (cache global) ──────────────────────────────────────────
 
@@ -832,7 +855,7 @@ const stergeSesiunePublica = (token) => db.prepare('DELETE FROM sesiuni_publice 
 // suprascriu (vezi src/ai.js si MODEL din antemasuratoare.js/scopProiect.js/
 // completitudine.js). Un set FIX, nu text liber, ca pagina de Setari sa nu
 // ghiceasca ce rol trimite.
-const ROLURI_MODEL = ['MODEL_EXTRAGERE', 'MODEL_SCOP', 'MODEL_COMPLETITUDINE', 'MODEL_DESCOMPUNERE', 'MODEL_CANTITATI', 'MODEL_SUGESTIE_MATCHING'];
+const ROLURI_MODEL = ['MODEL_EXTRAGERE', 'MODEL_SCOP', 'MODEL_COMPLETITUDINE', 'MODEL_DESCOMPUNERE', 'MODEL_CANTITATI', 'MODEL_SUGESTIE_MATCHING', 'MODEL_RERANKING_AI'];
 
 /** Toate suprascrierile active, ca {rol: model_slug}. Poate fi gol. */
 function setariModel() {
@@ -867,7 +890,7 @@ module.exports = {
   creeazaProiect, proiectDupaId, toateProiectele, actualizeazaStareProiect, actualizeazaScopProiect,
   seteazaCodLicitatie, proiectDupaCodLicitatie,
   insereazaLiniiAntemasuratoare, liniiPeProiect, liniiCuRezolutiiPeProiect,
-  salveazaRezolutie, confirmaRezolutie, salveazaSugestieMatching,
+  salveazaRezolutie, confirmaRezolutie, salveazaSugestieMatching, salveazaSugestieRerank,
   salveazaPretCurent, pretCurent,
   adaugaIstoricPret, adaugaIstoricPretSigur, istoricPreturiPentruArticol, colectiiPentruCodNomenclator, sugestiiPentruFurnizor, TIPURI_SURSA_PRET,
   stergeArticoleIstorice, adaugaArticolIstoric, articoleIstoricePentruCod, cautaArticoleIstoricePrinText,

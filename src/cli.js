@@ -263,6 +263,33 @@ async function comandaSugereazaMatching(args) {
   console.log(`\nUrmatorul pas: node index.js revizuieste ${proiectId} (sugestiile apar marcate cu ⭐, scurtatura "s" le accepta)`);
 }
 
+/**
+ * Reranking AI g1 (src/rerankingAI.js) -- retrieval din TOT nomenclatorul
+ * via Postgres (nu doar candidatii cache-uiti de bm25), reranking cu
+ * openai/gpt-5-mini. Ruleaza pe liniile "auto" SI "de_revizuit" (nu doar
+ * de_revizuit -- poate prinde erori bm25 nevazute de niciun om). Cost AI
+ * real -- de rulat explicit, niciodata implicit. Confirmat direct de
+ * Cristian, 18.09.2026, path paralel la matching-ul SQLite/bm25 live.
+ */
+async function comandaRerankingAI(args) {
+  const proiectId = Number(args[0]);
+  if (!proiectId) { console.error('Da id-ul proiectului.'); process.exit(1); }
+  const proiect = db.proiectDupaId(proiectId);
+  if (!proiect) { console.error(`Proiect inexistent: ${proiectId}`); process.exit(1); }
+  const limit = args[1] ? Number(args[1]) : undefined;
+
+  const rerankingAI = require('./rerankingAI');
+  const t0 = Date.now();
+  const stare = await rerankingAI.genereazaSugestiiRerank(proiectId, { limit });
+  console.log(`Durata: ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  console.log(`Procesate: ${stare.procesate} linii ("auto" + "de_revizuit").`);
+  console.log(`  ${stare.sugerate} sugestii noi, ${stare.faraSchimbare} -- AI confirma "niciun candidat", ${stare.faraCandidati} fara candidati de la retrieval.`);
+  if (stare.avertismente.length) {
+    console.log(`\n${stare.avertismente.length} avertismente:`);
+    stare.avertismente.forEach((a) => console.log('  - ' + a));
+  }
+}
+
 /** Confirma local (sursa de adevar), apoi scrie in BFLA -- esecul scrierii
  * in BFLA nu trebuie sa strice confirmarea, deja salvata (REGULA DE AUR). */
 async function confirmaSiScrieInBfla(linie, ales) {
@@ -307,9 +334,15 @@ async function comandaRevizuieste(args) {
     if (l.sugestie_index !== null && l.sugestie_index !== undefined && candidati[l.sugestie_index]) {
       console.log(`  Sugestie AI: opțiunea ${l.sugestie_index + 1} -- ${l.sugestie_motiv || ''}`);
     }
+    // Sugestie AI g1 (rerankingAI.js) -- din TOT nomenclatorul, poate sa NU
+    // fie deloc printre candidatii de mai sus. Afisata separat, cu propria
+    // scurtatura ("r"), NICIODATA aleasa singura -- la fel ca sugestia veche.
+    if (l.sugestie_rerank_colectie && l.sugestie_rerank_cod) {
+      console.log(`  Sugestie AI (g1, incredere ${l.sugestie_rerank_incredere || '?'}): [${l.sugestie_rerank_colectie}/${l.sugestie_rerank_cod}] -- ${l.sugestie_rerank_motiv || ''}`);
+    }
 
     // eslint-disable-next-line no-await-in-loop
-    const raspuns = (await intreaba('  Alege numarul, "s" pt sugestia AI, "c" pentru cautare noua, sau Enter ca sa sari: ')).trim();
+    const raspuns = (await intreaba('  Alege numarul, "s" pt sugestia AI, "r" pt sugestia g1, "c" pentru cautare noua, sau Enter ca sa sari: ')).trim();
     if (!raspuns) continue;
 
     if (raspuns.toLowerCase() === 's') {
@@ -317,6 +350,15 @@ async function comandaRevizuieste(args) {
       // eslint-disable-next-line no-await-in-loop
       if (ales) await confirmaSiScrieInBfla(l, ales);
       else console.log('  Nicio sugestie AI disponibila pentru aceasta linie, sarit.');
+      continue; // eslint-disable-line no-continue
+    }
+
+    if (raspuns.toLowerCase() === 'r') {
+      const ales = (l.sugestie_rerank_colectie && l.sugestie_rerank_cod)
+        ? { colectie: l.sugestie_rerank_colectie, cod: l.sugestie_rerank_cod } : null;
+      // eslint-disable-next-line no-await-in-loop
+      if (ales) await confirmaSiScrieInBfla(l, ales);
+      else console.log('  Nicio sugestie g1 disponibila pentru aceasta linie, sarit.');
       continue; // eslint-disable-line no-continue
     }
 
@@ -882,6 +924,7 @@ async function main() {
     case 'incarca-deviz': return comandaIncarcaDeviz(args);
     case 'reproceseaza-matching': return comandaReproceseazaMatching(args);
     case 'sugereaza-matching': return comandaSugereazaMatching(args);
+    case 'reranking-ai': return comandaRerankingAI(args);
     case 'revizuieste': return comandaRevizuieste(args);
     case 'genereaza': return comandaGenereaza(args);
     case 'preturi': return comandaPreturi(args);
